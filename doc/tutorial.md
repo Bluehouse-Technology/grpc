@@ -406,7 +406,7 @@ for the connection, such as TLS related options. In
 our case we'll use the simple form without TLS or other options.
 
 ```erlang
-{ok, Connection} = grpc_client:connect(http, "localhost", 10000).
+1> {ok, Connection} = grpc_client:connect(http, "localhost", 10000).
 ```
 
 Now we can use the connection to create a "stream". The stream is specific
@@ -416,7 +416,7 @@ server (if it is a streaming service). Like the server, also the client
 needs to have the encoder/decoder module `route_guide` on the code path.
 
 ```erlang
-{ok, Stream} = grpc_client:new_stream(Connection, 'RouteGuide', 'ListFeatures', route_guide).
+2> {ok, Stream} = grpc_client:new_stream(Connection, 'RouteGuide', 'ListFeatures', route_guide).
 ```
 
 ### Calling service methods
@@ -425,23 +425,42 @@ Now let's look at how we call our service methods.
 
 #### Simple RPC
 
-Calling the simple RPC `GetFeature` is nearly as straightforward as calling a
-local method. 
+Simple RPCs follow a fixed pattern of messages that are exchanged
+between the client and the server: essentially the client sends a request and the
+server sends back a response (on the wire you would also see some
+headers being exchanged). Since this is such simple pattern, the whole
+exchange of messages can be handled by one function call:
+`grpc_client:unary/6`. We don't even
+have to bother about establishing a stream, this will all be handled by
+`unary`.
 
 ```erlang
-%% TODO - no code for the client side is generated yet. (But as will 
-%% become clear below, you don't really need it.)
+3> Point = #{latitude => 409146138, longitude => -746188906}.
+4> grpc_client:unary(Connection, Point, 'RouteGuide', 'GetFeature', route_guide, []).
+{ok,#{grpc_status => 0,
+      headers => #{<<":status">> => <<"200">>},
+      http_status => 200,
+      result =>
+          #{location =>
+                #{latitude => 409146138,longitude => -746188906},
+            name =>
+                "Berkshire Valley Management Area Trail, Jefferson, NJ, USA"},
+      status_message => <<>>,
+      trailers => #{<<"grpc-status">> => <<"0">>}}}
 ```
 
 As you can see, we call the function with an argument of type `Point()`,
-that is: a map, and we receive back a `Feature()`: another map. The
+that is: a map, and the main result is `Feature()`: another map. The
 translation of these maps to and from protobufs is handled for us.
 
 Note that in this example the function that we are calling is 
 *blocking/synchronous*: this means
-that the RPC call waits for the server to respond, and will either return a
-response or raise an exception.
-
+that the RPC call waits for the server to respond (you can specify an
+optional timeout). Below we will see a more general approach
+to exchange messages over a stream. This gives a lot of control, and it can
+also be used to implement simple RPCs, for example if you want to have an
+a-synchronous implementation or if you want have control over the processing of
+headers.
 
 #### Streaming RPCs
 
@@ -480,16 +499,18 @@ Now we can see whether we have already received and responses:
 grpc_client:get(Stream).
 ```
 
-This returns `empty` - we did not yet receive anything.
+This returns `empty` - we did not yet receive anything. This is not
+surprising, because the server should only send a message if it receives
+information about a point that it nows something about.
 
-We can also check using the blocking `rcv` fucntion. Let's specify a
+We can also check using the blocking `rcv` function. Let's specify a
 timeout to avoid getting stuck.
 
 ```erlang
 grpc_client:rcv(Stream, 1000).
 ```
 
-This returns `{error,timout}` after one second - still no messages.
+This returns `{error,timeout}` after one second - still no messages.
 
 When we send some additional information for P1, we should get a response
 message with the information that we sent earlier.

@@ -9,6 +9,10 @@
 %% $> make SKIP_DEPS=1 ct
 %%--------------------------------------------------------------------
 
+-define(BVM_TRAIL, "Berkshire Valley Management Area Trail, Jefferson, NJ, USA").
+-define(BVM_TRAIL_POINT, #{latitude => 409146138,
+                           longitude => -746188906}).
+
 %%--------------------------------------------------------------------
 %% Test server callback functions
 %%--------------------------------------------------------------------
@@ -183,47 +187,38 @@ run_getfeature(Config) ->
     process_flag(trap_exit, true),
     Port = port(Config),
     {ok, Connection} = grpc_client:connect(http, "localhost", Port),
-    {ok,
-     _GrpcMessage, 
-     _Headers, 
-     #{name := "Berkshire Valley Management Area Trail, Jefferson, NJ, USA"}, 
-     _Trailers} = getFeature(Connection, 409146138, -746188906).
+    {ok, #{result := #{name := ?BVM_TRAIL}}} = feature(Connection,
+                                                       ?BVM_TRAIL_POINT).
 
 getfeature_compressed_request(Config) ->
     Port = port(Config),
     {ok, Connection} = grpc_client:connect(http, "localhost", Port),
-    {ok,
-     _GrpcMessage, 
-     _Headers, 
-     #{name := "Berkshire Valley Management Area Trail, Jefferson, NJ, USA"}, 
-     _Trailers} = 
-        getFeature(Connection, 409146138, -746188906,
-                   [{compression, gzip},
-                    %% Note: the metadata below does not acutally 
-                    %% do anything, but it makes this request
-                    %% recognizable on the server side. 
-                    {metadata, #{<<"compressed">> => <<"true">>}}]).
+    {ok, #{result := #{name := ?BVM_TRAIL}}} = 
+        feature(Connection,
+                ?BVM_TRAIL_POINT,
+                [{compression, gzip},
+                 %% Note: the metadata below does not acutally 
+                 %% do anything, but it makes this request
+                 %% recognizable on the server side. 
+                 {metadata, #{<<"compressed">> => <<"true">>}}]).
 
 getfeature_compressed_response(Config) ->
     Port = port(Config),
     {ok, Connection} = grpc_client:connect(http, "localhost", Port),
-    {ok,
-     _GrpcMessage, 
-     _Headers, 
-     #{name := "Berkshire Valley Management Area Trail, Jefferson, NJ, USA"}, 
-     _Trailers} = 
-        getFeature(Connection, 409146138, -746188906,
-                   [
-                   %% Note: the metadata below is used to 
-                   %% tell the server to compress the resonse.
-                   %% This is a feature of the example, in general
-                   %% grpc does not offer a way to instruct the server
-                   %% to compress response messages.
-                   %%
-                   %% Note also that the test does not check whether
-                   %% compression actually happened, this can be checked
-                   %% in wireshark.
-                   {metadata, #{<<"compression">> => <<"true">>}}]).
+    {ok, #{result := #{name := ?BVM_TRAIL}}} = 
+        feature(Connection,
+                ?BVM_TRAIL_POINT,
+                [
+                 %% Note: the metadata below is used to 
+                 %% tell the server to compress the resonse.
+                 %% This is a feature of the example server, in general
+                 %% grpc does not offer a way to instruct the server
+                 %% to compress response messages.
+                 %%
+                 %% Note also that the test does not check whether
+                 %% compression actually happened, this can be checked
+                 %% in wireshark.
+                 {metadata, #{<<"compression">> => <<"true">>}}]).
 
 run_listfeatures(Config) ->
     process_flag(trap_exit, true),
@@ -279,44 +274,34 @@ start_server_2(Config) ->
 
 metadata_from_client(Config) ->
     {ok, Connection} = grpc_client:connect(http, "localhost", port(Config)),
-    {ok,
-     _GrpcMessage, 
-     _Headers, 
-     #{name := "Berkshire Valley Management Area Trail, Jefferson, NJ, USA"}, 
-     _Trailers} = 
-        getFeature(Connection, 409146138, -746188906,
-                   [{metadata, #{<<"password">> => <<"secret">>}}]).
+    {ok, #{result := #{name := ?BVM_TRAIL}}} = 
+        feature(Connection,
+                ?BVM_TRAIL_POINT,
+                [{metadata, #{<<"password">> => <<"secret">>}}]).
 
 binary_metadata_from_client(Config) ->
     {ok, Connection} = grpc_client:connect(http, "localhost", port(Config)),
-    {ok,
-     _GrpcMessage, 
-     _Headers, 
-     #{name := "Berkshire Valley Management Area Trail, Jefferson, NJ, USA"}, 
-     _Trailers} = 
-        getFeature(Connection, 409146138, -746188906,
-                   [{metadata, #{<<"metadata-bin">> => <<1,2,3,4>>}}]).
+    {ok, #{result := #{name := ?BVM_TRAIL}}} = 
+        feature(Connection,
+                ?BVM_TRAIL_POINT,
+                [{metadata, #{<<"metadata-bin">> => <<1,2,3,4>>}}]).
 
 binary_metadata_from_server(Config) ->
     {ok, Connection} = grpc_client:connect(http, "localhost", port(Config)),
-    {ok,
-     _GrpcMessage, 
-     #{<<"response-bin">> := <<1,2,3,4>>}, 
-     #{name := "Berkshire Valley Management Area Trail, Jefferson, NJ, USA"}, 
-     _Trailers} = 
-        getFeature(Connection, 409146138, -746188906,
-                   [{metadata, #{<<"metadata-bin-response">> => <<"true">>}}]).
+    {ok, #{result := #{name := ?BVM_TRAIL},
+           headers := #{<<"response-bin">> := <<1,2,3,4>>}}} = 
+        feature(Connection,
+                ?BVM_TRAIL_POINT,
+                [{metadata, #{<<"metadata-bin-response">> => <<"true">>}}]).
 
 error_response(Config) ->
     {ok, Connection} = grpc_client:connect(http, "localhost", port(Config)),
-    {grpc_error,
-     <<"7">>,
-     <<"permission denied">>,
-     _Headers, 
-     #{}, 
-     _Trailers} = 
-        getFeature(Connection, 409146138, -746188906,
-                   [{metadata, #{<<"password">> => <<"sekret">>}}]).
+    {error, #{error_type := grpc,
+              grpc_status := 7,
+              status_message := <<"permission denied">>}} =
+        feature(Connection,
+                ?BVM_TRAIL_POINT,
+                [{metadata, #{<<"password">> => <<"sekret">>}}]).
 
 metadata_from_server(Config) ->
     {ok, Connection} = grpc_client:connect(http, "localhost", port(Config)),
@@ -346,20 +331,16 @@ start_server_secure(Config) ->
                   {keyfile, certificate("localhost.key")},
                   {cacertfile, certificate("My_Root_CA.crt")}],
     {ok, _} = grpc:start_server(grpc, route_guide_server_1, 
-                                  [{port, port(Config)},
-                                   {tls_options, TlsOptions}]). 
+                                [{port, port(Config)},
+                                 {tls_options, TlsOptions}]). 
 
 secure_request(Config) ->
     process_flag(trap_exit, true),
     TlsOptions = [{verify_server_identity, true},
                   {cacertfile, certificate("My_Root_CA.crt")}],
     {ok, Connection} = grpc_client:connect(tls, "localhost", port(Config), TlsOptions),
-    {ok,
-     _GrpcMessage, 
-     _Headers, 
-     #{name := "Patriots Path, Mendham, NJ 07945, USA"}, 
-     _Trailers} = getFeature(Connection, 407838351, -746143763).
-
+    {ok, #{result := #{name := ?BVM_TRAIL}}} = feature(Connection,
+                                                       ?BVM_TRAIL_POINT).
 tls_connection_fails(Config) ->
     %% Fails because the client does not provide a certificate
     process_flag(trap_exit, true),
@@ -381,8 +362,8 @@ start_server_wrong_certificate(Config) ->
                   {keyfile, certificate("mydomain.com.key")},
                   {cacertfile, certificate("My_Root_CA.crt")}],
     {ok, _} = grpc:start_server(grpc, route_guide_server_1, 
-                                  [{port, port(Config)},
-                                   {tls_options, TlsOptions}]). 
+                                [{port, port(Config)},
+                                 {tls_options, TlsOptions}]). 
 
 ssl_without_server_identification(Config) ->
     process_flag(trap_exit, true),
@@ -390,11 +371,8 @@ ssl_without_server_identification(Config) ->
                   {fail_if_no_peer_cert, true},
                   {cacertfile, certificate("My_Root_CA.crt")}],
     {ok, Connection} = grpc_client:connect(tls, "localhost", port(Config), TlsOptions),
-    {ok,
-     _GrpcMessage, 
-     _Headers, 
-     #{name := "Patriots Path, Mendham, NJ 07945, USA"}, 
-     _Trailers} = getFeature(Connection, 407838351, -746143763).
+    {ok, #{result := #{name := ?BVM_TRAIL}}} = feature(Connection,
+                                                       ?BVM_TRAIL_POINT).
 
 invalid_peer_certificate(Config) ->
     %% Fails because the server uses the wrong certificate.
@@ -412,9 +390,9 @@ start_server_authenticating(Config) ->
                   {fail_if_no_peer_cert, true},
                   {verify, verify_peer}],
     {ok, _} = grpc:start_server(grpc, route_guide_server_1, 
-                                  [{port, port(Config)},
-                                   {client_cert_dir, client_cert_dir()},
-                                   {tls_options, TlsOptions}]). 
+                                [{port, port(Config)},
+                                 {client_cert_dir, client_cert_dir()},
+                                 {tls_options, TlsOptions}]). 
 
 authenticated_request(Config) ->
     process_flag(trap_exit, true),
@@ -422,12 +400,8 @@ authenticated_request(Config) ->
                   {keyfile, certificate("127.0.0.1.key")},
                   {cacertfile, certificate("My_Root_CA.crt")}],
     {ok, Connection} = grpc_client:connect(tls, "localhost", port(Config), TlsOptions),
-    {ok,
-     _GrpcMessage, 
-     _Headers, 
-     #{name := "Patriots Path, Mendham, NJ 07945, USA"}, 
-     _Trailers} = getFeature(Connection, 407838351, -746143763).
-
+    {ok, #{result := #{name := ?BVM_TRAIL}}} = feature(Connection,
+                                                       ?BVM_TRAIL_POINT).
 wrong_client_certificate(Config) ->
     process_flag(trap_exit, true),
     %% Provide a certificate that is not in the list of certificates
@@ -437,13 +411,9 @@ wrong_client_certificate(Config) ->
                   {keyfile, certificate("localhost.key")},
                   {cacertfile, certificate("My_Root_CA.crt")}],
     {ok, Connection} = grpc_client:connect(tls, "localhost", port(Config), TlsOptions),
-    {grpc_error,
-     <<"16">>,
-     _Message,
-     _Headers, 
-     #{}, 
-     _Trailers} =
-        getFeature(Connection, 407838351, -746143763).
+    {error, #{error_type := grpc,
+              grpc_status := 16}} =
+        feature(Connection, ?BVM_TRAIL_POINT).
 
 %%-----------------------------------------------------------------------------
 %% Internal functions
@@ -454,53 +424,12 @@ compile_example(File) ->
                                 "server"]),
     {ok, _} = compile:file(filename:join(ExampleDir, File)).
 
-getFeature(Connection, Lat, Long) ->
-    getFeature(Connection, Lat, Long, []).
+feature(Connection, Message) ->
+    feature(Connection, Message, []).
 
-getFeature(Connection, Lat, Long, Options) ->
-    P1 = #{latitude => Lat, 
-           longitude => Long}, 
-    {ok, Stream} = grpc_client:new_stream(Connection, 'RouteGuide', 
-                                            'GetFeature', route_guide, Options),
-    unary(Stream, P1).
-
-unary(Stream, Request) ->
-    ok = grpc_client:send_last(Stream, Request),
-    get_response(Stream).
-
-get_response(Stream) ->
-    get_response(Stream, 500).
-
-get_response(Stream, Timeout) ->
-    case grpc_client:rcv(Stream, Timeout) of
-        {headers, #{<<":status">> := <<"200">>} = Headers} ->
-            get_response(Headers, Stream, Timeout);
-        {headers, #{<<":status">> := HttpStatus} = Headers} ->
-            {http_error, HttpStatus, Headers};
-        Other ->
-            Other
-    end.
-
-get_response(Headers, Stream, Timeout) ->
-    case grpc_client:rcv(Stream, Timeout) of
-        {data, Response} ->
-            get_trailer(Response, Headers, Stream, Timeout);
-        {headers, Trailers} -> 
-            grpc_response(Headers, #{}, Trailers)
-    end.
-
-get_trailer(Response, Headers, Stream, Timeout) ->
-    case grpc_client:rcv(Stream, Timeout) of
-        {headers, Trailers} -> 
-            grpc_response(Headers, Response, Trailers)
-    end.
-
-grpc_response(Headers, Response, #{<<"grpc-status">> := <<"0">>} = Trailers) ->
-    StatusMessage = maps:get(<<"grpc-message">>, Trailers, <<"">>),
-    {ok, StatusMessage, Headers, Response, Trailers};
-grpc_response(Headers, Response, #{<<"grpc-status">> := ErrorStatus} = Trailers) ->
-    StatusMessage = maps:get(<<"grpc-message">>, Trailers, <<"">>),
-    {grpc_error, ErrorStatus, StatusMessage, Headers, Response, Trailers}.
+feature(Connection, Message, Options) ->
+    grpc_client:unary(Connection, Message, 'RouteGuide', 
+                      'GetFeature', route_guide, Options).
 
 %% Example certificates are in "test/certificates".
 cert_dir() ->

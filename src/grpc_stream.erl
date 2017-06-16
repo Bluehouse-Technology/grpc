@@ -123,10 +123,7 @@ handle_info(timeout, #{response_pending := true,
 handle_info(_InfoMessage, State) ->
     {noreply, State}.
 
-terminate(_Reason, #{stream := Stream,
-                     state := open}) ->
-    grpc_client_lib:stop(Stream);
-terminate(_Reason, #{state := closed}) ->
+terminate(_Reason, _State) ->
     ok.
 
 %% private methods

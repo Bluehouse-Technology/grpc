@@ -5,18 +5,10 @@
          send/3,
          send_last/3,
          decode/2,
-         unary/2, unary/3,
          new_stream/6,
-         stop_connection/1
+         stop_connection/1,
+         call_rpc/3
         ]).
-
-%% TODO: 
-%% - binary headers,
-%% - compression
-%% - keep track of headers/trailers
-%% - security
-%% - bidirectional streaming
-
 
 %% TODO: fix the error handling, currently it is very hard to understand the
 %% error that results from a bad message (Map).
@@ -57,22 +49,6 @@ maybe_decompress(<<1, _Size:32, Message/binary>>, <<"gzip">>) ->
 maybe_decompress(<<1, _Size:32, _Message/binary>>, Other) ->
     throw({error, {decompression_method_not_supported, Other}}).
 
-get_messages(#{handler_state := S,
-               stream_id := StreamId} = Stream, Handler) ->
-    receive 
-        {'RECV_DATA', StreamId, Bin} ->
-            Decoded = decode(Stream, Bin),
-            S2 = Handler({data, Decoded}, S),
-            get_messages(Stream#{handler_state => S2}, Handler);
-        {'RECV_HEADERS', StreamId, Headers} ->
-            S2 = Handler({headers, maps:from_list(Headers)}, S),
-            get_messages(Stream#{handler_state => S2}, Handler);
-        {'END_STREAM', StreamId} ->
-            {ok, Handler(eof, S)}
-    after 5000 ->
-        {error, timeout}
-    end.
-
 connect(Transport, Host, Port, SslOptions) ->
     {ok, _} = application:ensure_all_started(chatterbox),
     H2Transport = case Transport of
@@ -110,32 +86,17 @@ process_options([], Host) ->
 process_options(SslOptions, Host) ->
     Default = [{verify, verify_peer},
                {fail_if_no_peer_cert, true}],
-    case lists:keytake(verify_server_identity, 1, SslOptions) of
-       {value, {_, true}, Options2}  ->
-           case lists:keytake(server_host_override, 1, Options2) of
-               false ->
-                   {Default ++ Options2, true, Host};
-               {value, {_, Override}, Options3} ->
-                   {Default ++ Options3, true, Override}
-           end;
-       {value, {_, false}, Options2}  ->
-           {Options2, false, Host};
-       false ->
-           {SslOptions, false, Host}
-   end.
+    case grpc_lib:keytake(verify_server_identity, SslOptions, false) of
+        {true, Options2} ->
+            {Override, Options3} = grpc_lib:keytake(server_host_override,
+                                                    Options2, Host),
+            {Default ++ Options3, true, Override};
+        {false, Options2} ->
+           {Options2, false, Host}
+    end.
                 
 validate_peercert(Certificate, Host) ->
     public_key:pkix_verify_hostname(Certificate, [{dns_id, Host}]).
-
-%% TODO: This is currently not used, either use or remove.
-unary(Stream, Message) ->
-    unary(Stream, Message, []).
-
-unary(Stream, Message, Headers) ->
-    Stream2 = send_last(Stream, Message, Headers),
-    get_messages(Stream2, fun ({data, Msg}, _) -> Msg;
-                              (_, S) -> S 
-                          end).
 
 new_stream(Connection, Service, Rpc, Encoder, Options, HandlerState) ->
     Compression = proplists:get_value(compression, Options, none),
@@ -205,3 +166,74 @@ client_headers(#{service := Service,
                    end,
                    {<<"user-agent">>, <<"chatterbox-client/0.0.1">>},
                    {<<"te">>, <<"trailers">>} | EncodedHeaders]).
+
+-spec call_rpc(Stream::grpc_client:stream(),
+               Message::map(),
+               Timeout::timeout()) ->
+    grpc_client:unary_response().
+%% @doc Call a unary rpc and process the response.
+call_rpc(Stream, Message, Timeout) ->
+    try grpc_client:send_last(Stream, Message) of
+        ok -> 
+            process_response(Stream, Timeout)
+    catch
+        _:_ ->
+            {error, #{error_type => client,
+                      status_message => <<"failed to encode and send message">>}}
+    end.
+
+process_response(Stream, Timeout) ->
+    case grpc_client:rcv(Stream, Timeout) of
+        {headers, #{<<":status">> := <<"200">>,
+                    <<"grpc-status">> := GrpcStatus} = Trailers} 
+          when GrpcStatus /= <<"0">> ->
+            %% "trailers only" response.
+            grpc_response(#{}, #{}, Trailers);
+        {headers, #{<<":status">> := <<"200">>} = Headers} ->
+            get_message(Headers, Stream, Timeout);
+        {headers, #{<<":status">> := HttpStatus} = Headers} ->
+            {error, #{error_type => http,
+                      status => {http, HttpStatus},
+                      headers => Headers}};
+        {error, timeout} ->
+            {error, #{error_type => timeout}}
+    end.
+
+get_message(Headers, Stream, Timeout) ->
+    case grpc_client:rcv(Stream, Timeout) of
+        {data, Response} ->
+            get_trailer(Response, Headers, Stream, Timeout);
+        {headers, Trailers} -> 
+            grpc_response(Headers, #{}, Trailers);
+        {error, timeout} ->
+            {error, #{error_type => timeout,
+                      headers => Headers}}
+    end.
+
+get_trailer(Response, Headers, Stream, Timeout) ->
+    case grpc_client:rcv(Stream, Timeout) of
+        {headers, Trailers} -> 
+            grpc_response(Headers, Response, Trailers);
+        {error, timeout} ->
+            {error, #{error_type => timeout,
+                      headers => Headers,
+                      result => Response}}
+    end.
+
+grpc_response(Headers, Response, #{<<"grpc-status">> := <<"0">>} = Trailers) ->
+    StatusMessage = maps:get(<<"grpc-message">>, Trailers, <<"">>),
+    {ok, #{status_message => StatusMessage,
+           http_status => 200,
+           grpc_status => 0,
+           headers => Headers,
+           result => Response, 
+           trailers => Trailers}};
+grpc_response(Headers, Response, #{<<"grpc-status">> := ErrorStatus} = Trailers) ->
+    StatusMessage = maps:get(<<"grpc-message">>, Trailers, <<"">>),
+    {error, #{error_type => grpc,
+              http_status => 200,
+              grpc_status => binary_to_integer(ErrorStatus), 
+              status_message => StatusMessage, 
+              headers => Headers,
+              result => Response,
+              trailers => Trailers}}.

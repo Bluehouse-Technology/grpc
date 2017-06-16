@@ -5,7 +5,8 @@
          encode_output/4,
          maybe_encode_header/1,
          maybe_encode_headers/1,
-         maybe_decode_header/1]).
+         maybe_decode_header/1,
+         keytake/3]).
 
 -type cert() :: term().
 
@@ -78,6 +79,21 @@ maybe_encode_headers(Headers) ->
                              V
                      end
              end, Headers).
+
+-spec keytake(Key::term(), KVList::[{term(), term()}], Default::term()) ->
+    {Value::term(), NewKVList::[{term(), term()}]}.
+%% @doc Get the value for a certain key from a list and remove it from the 
+%% list.
+%%
+%% Returns the value (or the default, if it was not found) and the list with
+%% this key removed.
+keytake(Key, KVList, Default) ->
+    case lists:keytake(Key, 1, KVList) of
+        {value, {_, Value}, List2} ->
+            {Value, List2};
+        false ->
+            {Default, KVList}
+    end.
 
 %%% ---------------------------------------------------------------------------
 %%% Internal functions

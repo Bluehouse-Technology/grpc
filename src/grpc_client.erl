@@ -7,22 +7,44 @@
          new_stream/4, new_stream/5,
          send/2, send/3,
          send_last/2, send_last/3,
+         unary/6,
          rcv/1, rcv/2,
          get/1,
          stop_stream/1,
          stop_connection/1]).
 
--type tls_option()    :: ranch_ssl:ssl_opt() | 
-                         {verify_server_identity, boolean()} |
-                         {server_host_override, string()}.
--type connection()    :: pid().
--type stream_option() :: {metadata, gprc:metadata()} |
-                         {compression, grpc:compression_method()}.
--type client_stream() :: pid().
--type rcv_response()  :: {data, map()} | 
-                         {headers, gprc:metadata()} |
-                         eof.
--type get_response()  :: rcv_response() | empty.
+-type tls_option()     :: ranch_ssl:ssl_opt() | 
+                          {verify_server_identity, boolean()} |
+                          {server_host_override, string()}.
+-type connection()     :: pid().
+-type stream_option()  :: {metadata, grpc:metadata()} |
+                          {compression, grpc:compression_method()}.
+-type client_stream()  :: pid().
+-type rcv_response()   :: {data, map()} | 
+                          {headers, gprc:metadata()} |
+                          eof | {error, term()}.
+-type get_response()   :: rcv_response() | empty.
+
+-type unary_response(Type) :: 
+                          {ok, #{result := Type,
+                                 status_message := binary(),
+                                 http_status := 200,
+                                 grpc_status := 0,
+                                 headers := grpc:metadata(),
+                                 trailers := grpc:metadata()}} |
+                          {error, #{error_type := client | timeout | 
+                                                  http | grpc,
+                                    http_status => integer(),
+                                    grpc_status => integer(),
+                                    status_message => binary(),
+                                    headers => grpc:metadata(),
+                                    result => Type,
+                                    trailers => grpc:metadata()}}.
+
+-export_type([connection/0,
+              stream_option/0,
+              client_stream/0,
+              unary_response/1]).
 
 -spec connect(Transport::http | tls,
               Host::string(),
@@ -129,3 +151,28 @@ stop_stream(Stream) ->
 %% @doc Stop a connection and clean up.
 stop_connection(Connection) ->
     grpc_client_lib:stop_connection(Connection).
+
+-spec unary(Connection::connection(),
+            Message::map(), Service::atom(), Rpc::atom(),
+            Decoder::module(),
+            Options::[stream_option() |
+                      {timeout, timeout()}]) -> unary_response(map()).
+%% @doc Call a unary rpc in one go.
+%%
+%% Set up a stream, receive headers, message and trailers, stop
+%% the stream and assemble a response. This is a blocking function.
+unary(Connection, Message, Service, Rpc, Decoder, Options) ->
+    {Timeout, StreamOptions} = grpc_lib:keytake(timeout, Options, infinity),
+    try grpc_client:new_stream(Connection, Service,
+                               Rpc, Decoder, StreamOptions) of
+        {ok, Stream} ->
+            Response = grpc_client_lib:call_rpc(Stream, Message, Timeout),
+            grpc_client:stop_stream(Stream),
+            Response
+    catch
+        _:_ ->
+            {error, #{error_type => client,
+                      status_message => <<"error creating stream">>}}
+    end.
+
+
