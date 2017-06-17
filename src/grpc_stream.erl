@@ -51,11 +51,17 @@ stop(Pid) ->
 
 %% gen_server implementation
 init({Connection, Service, Rpc, Encoder, Options}) ->
-    {ok,
-     #{stream => grpc_client_lib:new_stream(Connection, Service, Rpc, Encoder, Options, []),
-       queue => queue:new(),
-       response_pending => false,
-       state => open}}.
+    try grpc_client_lib:new_stream(Connection, Service, Rpc, Encoder, Options, []) of
+        NewStream ->
+            {ok,
+             #{stream => NewStream,
+               queue => queue:new(),
+               response_pending => false,
+               state => open}}
+    catch
+        _:_ ->
+            {stop, <<"failed to create stream">>}
+    end.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

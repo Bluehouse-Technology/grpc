@@ -159,8 +159,7 @@ Running this command generates the following files in your current directory:
 -  `route_guide.erl`, the code to encode and decode the protobuf messages
 -  `route_guide_server.erl`, which contains skeleton functions for a server
 -  `route_guide_client.erl`, which contains stubs to be used on the server
-   side. *Note*: this is currently not created, see below how to implement a
-   client.
+   side. 
 
 These contain:
 
@@ -461,6 +460,15 @@ to exchange messages over a stream. This gives a lot of control, and it can
 also be used to implement simple RPCs, for example if you want to have an
 a-synchronous implementation or if you want have control over the processing of
 headers.
+
+To simplify things even more for simple RPCs the compilation step
+generates stubs for these functions. The generated file
+"route_guide_client.erl" contains a function `'GetFeature'/3` that can be
+called as follows:
+
+```erlang
+5> route_guide_client:'GetFeature'(Connection, Point, []).
+```
 
 #### Streaming RPCs
 

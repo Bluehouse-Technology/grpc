@@ -75,6 +75,7 @@ groups() ->
         ,compile_routeguide_example
         ,start_routeguide_server
         ,run_getfeature
+        ,getfeature_client
         ,run_listfeatures
         ,run_routechat
         ,run_recordroute
@@ -160,8 +161,8 @@ compile_routeguide_proto(_Config) ->
                          filelib:is_file(F) 
                      end, 
                      ["route_guide.erl",
-                      "route_guide_server.erl"
-                      %% TODO: add generated client module (if applicable)
+                      "route_guide_server.erl",
+                      "route_guide_client.erl"
                       ]).
 
 compile_routeguide_generated(_Config) ->
@@ -172,8 +173,8 @@ compile_routeguide_generated(_Config) ->
                          end
                      end, 
                      ["route_guide.erl",
-                      "route_guide_server.erl"
-                      %% TODO: add generated client module (if applicable)
+                      "route_guide_server.erl",
+                      "route_guide_client.erl"
                      ]).
 
 compile_routeguide_example(_Config) ->
@@ -189,6 +190,11 @@ run_getfeature(Config) ->
     {ok, Connection} = grpc_client:connect(http, "localhost", Port),
     {ok, #{result := #{name := ?BVM_TRAIL}}} = feature(Connection,
                                                        ?BVM_TRAIL_POINT).
+getfeature_client(Config) ->
+    Port = port(Config),
+    {ok, Connection} = grpc_client:connect(http, "localhost", Port),
+    {ok, #{result := #{name := ?BVM_TRAIL}}} =
+        route_guide_client:'GetFeature'(Connection, ?BVM_TRAIL_POINT, []).
 
 getfeature_compressed_request(Config) ->
     Port = port(Config),
