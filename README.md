@@ -37,3 +37,12 @@ tested against the go grpc implementation.
 ## gRPC functionality
 
 [tutorial](/doc/tutorial.md)
+
+## Acknowledgements
+
+The development of ''otter'' was championed by [Holger Winkelmann](https://github.com/hwinkel) of [Travelping](https://github.com/travelping). [Travelping](https://github.com/travelping) also kindly provided sponsorship for the initial development. The development was primarily done by [Willem de Jong](https://github.com/willemdj) with design input from [Chandru Mullaparthi](https://github.com/cmullaparthi).
+
+## License
+
+Apache 2.0
+
