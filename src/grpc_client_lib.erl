@@ -17,12 +17,12 @@ encode(#{encoder := Encoder,
          compression := CompressionMethod}, Map) ->
     %% RequestData = Encoder:encode_msg(Map, MsgType),
     try Encoder:encode_msg(Map, MsgType) of
-        RequestData -> 
+        RequestData ->
             maybe_compress(RequestData, CompressionMethod)
     catch
-        error:function_clause -> 
+        error:function_clause ->
           throw({error, {failed_to_encode, MsgType, Map}});
-        Error:Reason -> 
+        Error:Reason ->
           throw({error, {Error, Reason}})
     end.
 
@@ -57,7 +57,7 @@ connect(Transport, Host, Port, SslOptions) ->
                   end,
     H2Settings = chatterbox:settings(client),
     {H2Options, VerifyServerId, ServerId} = process_options(SslOptions, Host),
-    ConnectResult = h2_connection:start_client_link(H2Transport, Host, Port, 
+    ConnectResult = h2_connection:start_client_link(H2Transport, Host, Port,
                                                     H2Options, H2Settings),
     case ConnectResult of
         {ok, Pid} ->
@@ -94,7 +94,7 @@ process_options(SslOptions, Host) ->
         {false, Options2} ->
            {Options2, false, Host}
     end.
-                
+
 validate_peercert(Certificate, Host) ->
     public_key:pkix_verify_hostname(Certificate, [{dns_id, Host}]).
 
@@ -130,10 +130,10 @@ send(#{stream_id := StreamId,
     Encoded = encode(Stream, Message),
     case HeadersSent of
         false ->
-        %% TODO: Currently there are 2 ways to send metadata/headers. Keep only the 
-        %% way where they are specified with the creation of the stream.
-            AllHeaders = client_headers(Stream,
-                                        maps:to_list(Metadata) ++ Headers),
+            %% TODO: Currently there are 2 ways to send metadata/headers. Keep only the
+            %% way where they are specified with the creation of the stream.
+            DefaultHeaders = client_headers(Stream, Headers),
+            AllHeaders = maps:to_list(maps:merge(DefaultHeaders, Metadata)),
             h2_connection:send_headers(Connection, StreamId, AllHeaders);
         true ->
             ok
@@ -147,25 +147,28 @@ stop_connection(StreamId) ->
 client_headers(#{service := Service,
                  rpc := Rpc,
                  package := Package,
-                 compression := CompressionMethod
+                 compression := Compression
                 }, Headers) ->
-    EncodedHeaders = [grpc_lib:maybe_encode_header(H) || H <- Headers],
-    Path = iolist_to_binary(["/", Package, atom_to_list(Service), 
+    Headers1 = case Compression of
+                   none ->
+                       Headers;
+                   _ ->
+                       [{<<"grpc-encoding">>,
+                         atom_to_binary(Compression, unicode)} | Headers]
+               end,
+    EncodedHeaders = lists:foldl(fun(H, Acc) ->
+                                     {K, V} = grpc_lib:maybe_encode_header(H),
+                                     maps:put(K, V, Acc)
+                                 end, #{}, Headers1),
+    Path = iolist_to_binary(["/", Package, atom_to_list(Service),
                              "/", atom_to_list(Rpc)]),
-    lists:flatten([{<<":method">>, <<"POST">>},
-                   {<<":scheme">>, <<"http">>},
-                   {<<":path">>, Path},
-                   {<<":authority">>, <<"localhost">>},
-                   {<<"content-type">>, <<"application/grpc">>},
-                   case CompressionMethod of
-                       none ->
-                           [];
-                       _ ->
-                           {<<"grpc-encoding">>,
-                            atom_to_binary(CompressionMethod, unicode)}
-                   end,
-                   {<<"user-agent">>, <<"chatterbox-client/0.0.1">>},
-                   {<<"te">>, <<"trailers">>} | EncodedHeaders]).
+    EncodedHeaders#{<<":method">>      => <<"POST">>,
+                    <<":scheme">>      => <<"http">>,
+                    <<":path">>        => Path,
+                    <<":authority">>   => <<"localhost">>,
+                    <<"content-type">> => <<"application/grpc">>,
+                    <<"user-agent">>   => <<"chatterbox-client/0.0.1">>,
+                    <<"te">>           => <<"trailers">>}.
 
 -spec call_rpc(Stream::grpc_client:stream(),
                Message::map(),
@@ -174,7 +177,7 @@ client_headers(#{service := Service,
 %% @doc Call a unary rpc and process the response.
 call_rpc(Stream, Message, Timeout) ->
     try grpc_client:send_last(Stream, Message) of
-        ok -> 
+        ok ->
             process_response(Stream, Timeout)
     catch
         _:_ ->
@@ -185,7 +188,7 @@ call_rpc(Stream, Message, Timeout) ->
 process_response(Stream, Timeout) ->
     case grpc_client:rcv(Stream, Timeout) of
         {headers, #{<<":status">> := <<"200">>,
-                    <<"grpc-status">> := GrpcStatus} = Trailers} 
+                    <<"grpc-status">> := GrpcStatus} = Trailers}
           when GrpcStatus /= <<"0">> ->
             %% "trailers only" response.
             grpc_response(#{}, #{}, Trailers);
@@ -203,7 +206,7 @@ get_message(Headers, Stream, Timeout) ->
     case grpc_client:rcv(Stream, Timeout) of
         {data, Response} ->
             get_trailer(Response, Headers, Stream, Timeout);
-        {headers, Trailers} -> 
+        {headers, Trailers} ->
             grpc_response(Headers, #{}, Trailers);
         {error, timeout} ->
             {error, #{error_type => timeout,
@@ -212,7 +215,7 @@ get_message(Headers, Stream, Timeout) ->
 
 get_trailer(Response, Headers, Stream, Timeout) ->
     case grpc_client:rcv(Stream, Timeout) of
-        {headers, Trailers} -> 
+        {headers, Trailers} ->
             grpc_response(Headers, Response, Trailers);
         {error, timeout} ->
             {error, #{error_type => timeout,
@@ -226,14 +229,14 @@ grpc_response(Headers, Response, #{<<"grpc-status">> := <<"0">>} = Trailers) ->
            http_status => 200,
            grpc_status => 0,
            headers => Headers,
-           result => Response, 
+           result => Response,
            trailers => Trailers}};
 grpc_response(Headers, Response, #{<<"grpc-status">> := ErrorStatus} = Trailers) ->
     StatusMessage = maps:get(<<"grpc-message">>, Trailers, <<"">>),
     {error, #{error_type => grpc,
               http_status => 200,
-              grpc_status => binary_to_integer(ErrorStatus), 
-              status_message => StatusMessage, 
+              grpc_status => binary_to_integer(ErrorStatus),
+              status_message => StatusMessage,
               headers => Headers,
               result => Response,
               trailers => Trailers}}.
