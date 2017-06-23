@@ -15,9 +15,7 @@
 -type tls_option()     :: ranch_ssl:ssl_opt() | 
                           {verify_server_identity, boolean()} |
                           {server_host_override, string()}.
--type connection()     :: #{pid := pid(),  %% h2_connection
-                            host := binary(),
-                            scheme := binary()}.
+-type connection()     :: grpc_cl_connection:connection().
 -type stream_option()  :: {metadata, grpc:metadata()} |
                           {compression, grpc:compression_method()}.
 -type client_stream()  :: pid().
@@ -45,12 +43,13 @@
 -export_type([connection/0,
               stream_option/0,
               client_stream/0,
-              unary_response/1]).
+              unary_response/1,
+              tls_option/0]).
 
 -spec connect(Transport::http | tls,
               Host::string(),
               Port::integer()) -> {ok, connection()} | {error, term()}.
-%% @doc Start a connection to a gRPC server, with the default options.
+%% @equiv connect(Transport, Host, Port, []).
 connect(Transport, Host, Port) ->
     connect(Transport, Host, Port, []).
 
@@ -67,7 +66,7 @@ connect(Transport, Host, Port) ->
 %% than the host name, the 'server_host_override' option can be used to 
 %% specify that other subject.
 connect(Transport, Host, Port, Options) ->
-    grpc_client_lib:connect(Transport, Host, Port, Options).
+    grpc_cl_connection:new(Transport, Host, Port, Options).
 
 -spec new_stream(Connection::connection(), 
                  Service::atom(), 
@@ -75,7 +74,7 @@ connect(Transport, Host, Port, Options) ->
                  DecoderModule::module()) -> {ok, client_stream()}.
 %% @equiv new_stream(Connection, Service, Rpc, DecoderModule, []) 
 new_stream(Connection, Service, Rpc, DecoderModule) ->
-    grpc_stream:new(Connection, Service, Rpc, DecoderModule, []).
+    new_stream(Connection, Service, Rpc, DecoderModule, []).
 
 -spec new_stream(Connection::connection(), 
                  Service::atom(), 
@@ -84,13 +83,13 @@ new_stream(Connection, Service, Rpc, DecoderModule) ->
                  Options::[stream_option()]) -> {ok, client_stream()}.
 %% @doc Create a new stream to start a new RPC.
 new_stream(Connection, Service, Rpc, DecoderModule, Options) ->
-    grpc_stream:new(Connection, Service, Rpc, DecoderModule, Options).
+    grpc_cl_stream:new(Connection, Service, Rpc, DecoderModule, Options).
 
 -spec send(Stream::client_stream(), Msg::map()) -> ok.
 %% @doc Send a message from the client to the server.
 send(Stream, Msg) when is_pid(Stream),
                        is_map(Msg) ->
-    grpc_stream:send(Stream, Msg).
+    grpc_cl_stream:send(Stream, Msg).
 
 -spec send_last(Stream::client_stream(), Msg::map()) -> ok.
 %% @doc Send a message to server and mark it as the last message 
@@ -98,12 +97,12 @@ send(Stream, Msg) when is_pid(Stream),
 %% should trigger the response from the server.
 send_last(Stream, Msg) when is_pid(Stream),
                             is_map(Msg) ->
-    grpc_stream:send_last(Stream, Msg).
+    grpc_cl_stream:send_last(Stream, Msg).
 
 -spec rcv(Stream::client_stream()) -> rcv_response().
 %% @equiv rcv(Stream, infinity)
 rcv(Stream) ->
-    grpc_stream:rcv(Stream).
+    grpc_cl_stream:rcv(Stream).
    
 -spec rcv(Stream::client_stream(), Timeout::timeout()) -> rcv_response().
 %% @doc Receive a message from the server. This is a blocking 
@@ -112,7 +111,7 @@ rcv(Stream) ->
 %%
 %% Returns 'eof' after the last message from the server has been read.
 rcv(Stream, Timeout) ->
-    grpc_stream:rcv(Stream, Timeout).
+    grpc_cl_stream:rcv(Stream, Timeout).
      
 -spec get(Stream::client_stream()) -> get_response().
 %% @doc Get a message from the stream, if there is one in the queue. If not return 
@@ -120,17 +119,17 @@ rcv(Stream, Timeout) ->
 %%
 %% Returns 'eof' after the last message from the server has been read.
 get(Stream) ->
-    grpc_stream:get(Stream).
+    grpc_cl_stream:get(Stream).
 
 -spec stop_stream(Stream::client_stream()) -> ok.
 %% @doc Stop a stream and clean up.
 stop_stream(Stream) ->
-    grpc_stream:stop(Stream).
+    grpc_cl_stream:stop(Stream).
 
 -spec stop_connection(Connection::connection()) -> ok.
 %% @doc Stop a connection and clean up.
 stop_connection(Connection) ->
-    grpc_client_lib:stop_connection(Connection).
+    grpc_cl_connection:stop(Connection).
 
 -spec unary(Connection::connection(),
             Message::map(), Service::atom(), Rpc::atom(),
@@ -146,13 +145,11 @@ unary(Connection, Message, Service, Rpc, Decoder, Options) ->
     try
         {ok, Stream} = new_stream(Connection, Service,
                                   Rpc, Decoder, StreamOptions),
-        Response = grpc_client_lib:call_rpc(Stream, Message, Timeout),
-        grpc_client:stop_stream(Stream),
+        Response = grpc_cl_stream:call_rpc(Stream, Message, Timeout),
+        stop_stream(Stream),
         Response
     catch
         _:_Error ->
             {error, #{error_type => client,
                       status_message => <<"error creating stream">>}}
     end.
-
-
