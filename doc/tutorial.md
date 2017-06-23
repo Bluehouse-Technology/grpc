@@ -697,7 +697,7 @@ this:
 %% This shows how to access metadata that was sent by the client,
 %% and how to send an error response.
 'GetFeature'(Message, Stream, _State) ->
-    case grpc:get_metadata(Stream) of
+    case grpc:metadata(Stream) of
         #{<<"password">> := <<"secret">>} ->
             Feature = #{name => find_point(Message, data()),
                         location => Message}, 
@@ -756,13 +756,33 @@ messages that it will receive (also the "standard" HTTP/2 and grpc headers such 
 eof
 ```
 
-## Options
+## Compression
+
+gRPC supports compression of messages. The standard specifies several
+poossible methods: gzip, deflate or snappy, and it also allows the use of
+custom methods. This implementation currently only supports gzip.
+
+On the client side, a message that is sent to the server can be compressed 
+by specifying the option `{compression, gzip}` when creating the stream (or
+as an option to a simple rpc in a generated client module).
+
+```erlang
+2>  {ok, Stream} = grpc_client:new_stream(C, 'RouteGuide', 'ListFeatures',
+                                          route_guide,
+                                          [{compression, gzip}]).
+```
+
+Or:
+
+```erlang
+3> route_guide_client:'GetFeature'(Connection, Point, [{compression, gzip}]).
+```
+
+On the server side, a message that is sent to the client can be compressed
+by applying `grpc:set_compression/2` on the stream, similar to the way
+metadata can be added using `grpc:set_headers/2` or `grpc:set_trailers/2`.
 
 TODO: 
--  Describe how both the client and the server can send and receive 
-   metadata.
--  Describe how compression can be used (currently only implemented on the
-   server side).
 -  Timeout.
 -  Description and improvement of the actual implementation of error
    handling.

@@ -88,6 +88,7 @@ groups() ->
         ,metadata_from_server
         ,binary_metadata_from_client
         ,binary_metadata_from_server
+        ,header_overwrite
         ]},
      {compressed, [sequence],
         [start_server_2
@@ -299,6 +300,17 @@ binary_metadata_from_server(Config) ->
         feature(Connection,
                 ?BVM_TRAIL_POINT,
                 [{metadata, #{<<"metadata-bin-response">> => <<"true">>}}]).
+
+header_overwrite(Config) ->
+    {ok, Connection} = grpc_client:connect(http, "localhost", port(Config)),
+    {error, #{error_type := grpc,
+              grpc_status := 3,
+              status_message := <<"invalid argument">>}} = 
+        feature(Connection,
+                ?BVM_TRAIL_POINT,
+                [{metadata, #{<<"header_overwrite">> => <<"true">>,
+                              <<":authority">> => <<"changed">>,
+                              <<":scheme">> => <<"changed">>}}]).
 
 error_response(Config) ->
     {ok, Connection} = grpc_client:connect(http, "localhost", port(Config)),

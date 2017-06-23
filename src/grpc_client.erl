@@ -5,8 +5,7 @@
 
 -export([connect/3, connect/4,
          new_stream/4, new_stream/5,
-         send/2, send/3,
-         send_last/2, send_last/3,
+         send/2, send_last/2,
          unary/6,
          rcv/1, rcv/2,
          get/1,
@@ -16,7 +15,9 @@
 -type tls_option()     :: ranch_ssl:ssl_opt() | 
                           {verify_server_identity, boolean()} |
                           {server_host_override, string()}.
--type connection()     :: pid().
+-type connection()     :: #{pid := pid(),  %% h2_connection
+                            host := binary(),
+                            scheme := binary()}.
 -type stream_option()  :: {metadata, grpc:metadata()} |
                           {compression, grpc:compression_method()}.
 -type client_stream()  :: pid().
@@ -91,14 +92,6 @@ send(Stream, Msg) when is_pid(Stream),
                        is_map(Msg) ->
     grpc_stream:send(Stream, Msg).
 
--spec send(Stream::client_stream(), 
-           Msg::map(), Headers::grpc:metadata()) -> ok.
-%% @doc Send a message to server with metadata. This is only
-%% possible with the first message that is sent on a stream.
-send(Stream, Msg, Headers) when is_pid(Stream),
-                                is_map(Msg) ->
-    grpc_stream:send(Stream, Msg, Headers).
-
 -spec send_last(Stream::client_stream(), Msg::map()) -> ok.
 %% @doc Send a message to server and mark it as the last message 
 %% on the stream. For simple RPC and client-streaming RPCs that 
@@ -106,19 +99,6 @@ send(Stream, Msg, Headers) when is_pid(Stream),
 send_last(Stream, Msg) when is_pid(Stream),
                             is_map(Msg) ->
     grpc_stream:send_last(Stream, Msg).
-
--spec send_last(Stream::client_stream(), 
-                Msg::map(), Headers::grpc:metadata()) -> ok.
-%% @doc Send a message to server with metadata, and mark it
-%% as the last message on the stream. For simple RPC and 
-%% client-streaming RPCs that should trigger the response from the server.
-%%
-%% Note that sending metadata is only possible with the first message 
-%% that is sent on a stream. So this call is only usefull if there
-%% is exactly one message from the client to the server.
-send_last(Stream, Msg, Headers) when is_pid(Stream),
-                                is_map(Msg) ->
-    grpc_stream:send_last(Stream, Msg, Headers).
 
 -spec rcv(Stream::client_stream()) -> rcv_response().
 %% @equiv rcv(Stream, infinity)
@@ -163,14 +143,14 @@ stop_connection(Connection) ->
 %% the stream and assemble a response. This is a blocking function.
 unary(Connection, Message, Service, Rpc, Decoder, Options) ->
     {Timeout, StreamOptions} = grpc_lib:keytake(timeout, Options, infinity),
-    try grpc_client:new_stream(Connection, Service,
-                               Rpc, Decoder, StreamOptions) of
-        {ok, Stream} ->
-            Response = grpc_client_lib:call_rpc(Stream, Message, Timeout),
-            grpc_client:stop_stream(Stream),
-            Response
+    try
+        {ok, Stream} = new_stream(Connection, Service,
+                                  Rpc, Decoder, StreamOptions),
+        Response = grpc_client_lib:call_rpc(Stream, Message, Timeout),
+        grpc_client:stop_stream(Stream),
+        Response
     catch
-        _:_ ->
+        _:_Error ->
             {error, #{error_type => client,
                       status_message => <<"error creating stream">>}}
     end.

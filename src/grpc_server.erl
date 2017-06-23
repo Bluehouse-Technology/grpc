@@ -89,9 +89,17 @@ init(Req, Options) ->
             end
     end.
         
-make_stream(#{headers := Headers} = Req) ->
+make_stream(#{headers := Headers,
+              host := Authority,
+              scheme := Scheme,
+              path := Path,
+              method := Method} = Req) ->
     maps:fold(fun process_header/3, 
               #{cowboy_req => Req,
+                authority => Authority,
+                scheme => Scheme,
+                path => Path,
+                method => Method,
                 headers => #{},
                 trailers => #{},
                 metadata => #{}, %% metadata received from client

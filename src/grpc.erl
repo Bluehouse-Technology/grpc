@@ -18,7 +18,8 @@
          set_trailers/2,
          send_headers/1,
          send_headers/2,
-         get_metadata/1,
+         metadata/1, 
+         authority/1, scheme/1, method/1, path/1, 
          set_compression/2]).
 
 -type server_option() :: {tls_options, [ranch_ssl:ssl_opt()]} |
@@ -164,10 +165,35 @@ send_headers(#{cowboy_req := Req,
     Stream#{cowboy_req => cowboy_req:stream_reply(200, AllHeaders, Req),
             headers_sent => true}.
 
--spec get_metadata(stream()) -> metadata().
+-spec metadata(stream()) -> metadata().
 %% @doc Get the metadata that was sent by the client.
-get_metadata(#{metadata := Metadata}) ->
+%%
+%% Note that this will in fact provide all the headers, except for :method,
+%% :authority, :scheme and :path (there are separate functions to get access to
+%% those). But if there is for example a grpc-timeout header this will also be 
+%% returned as metadata.
+metadata(#{metadata := Metadata}) ->
     Metadata.
+
+-spec authority(stream()) -> binary().
+%% @doc Get the value for the :authority header.
+authority(#{authority := Value}) ->
+    Value.
+
+-spec scheme(stream()) -> binary().
+%% @doc Get the value for the :scheme header.
+scheme(#{scheme := Value}) ->
+    Value.
+
+-spec path(stream()) -> binary().
+%% @doc Get the value for the :path header.
+path(#{path := Value}) ->
+    Value.
+
+-spec method(stream()) -> binary().
+%% @doc Get the value for the :method header.
+method(#{method := Value}) ->
+    Value.
 
 -spec set_compression(stream(), compression_method()) -> stream().
 %% @doc Enable compression of response messages. Currently only gzip or

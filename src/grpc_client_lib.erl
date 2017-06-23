@@ -2,8 +2,8 @@
 
 -export([
          connect/4,
-         send/3,
-         send_last/3,
+         send/2,
+         send_last/2,
          decode/2,
          new_stream/6,
          stop_connection/1,
@@ -49,59 +49,81 @@ maybe_decompress(<<1, _Size:32, Message/binary>>, <<"gzip">>) ->
 maybe_decompress(<<1, _Size:32, _Message/binary>>, Other) ->
     throw({error, {decompression_method_not_supported, Other}}).
 
-connect(Transport, Host, Port, SslOptions) ->
+connect(Transport, Host, Port, Options) ->
     {ok, _} = application:ensure_all_started(chatterbox),
-    H2Transport = case Transport of
-                    http -> gen_tcp;
-                    tls -> ssl
-                  end,
     H2Settings = chatterbox:settings(client),
-    {H2Options, VerifyServerId, ServerId} = process_options(SslOptions, Host),
-    ConnectResult = h2_connection:start_client_link(H2Transport, Host, Port,
-                                                    H2Options, H2Settings),
+    SslOptions = ssl_options(Options),
+    ConnectResult = h2_connection:start_client_link(h2_transport(Transport), 
+                                                    Host, Port,
+                                                    SslOptions, H2Settings),
     case ConnectResult of
         {ok, Pid} ->
-            case Transport == tls andalso VerifyServerId of
-                true ->
-                    {ok, PeerCertificate} = h2_connection:get_peercert(Pid),
-                    case validate_peercert(PeerCertificate, ServerId) of
-                        true ->
-                            ConnectResult;
-                        false ->
-                            {error, invalid_peer_certificate}
-                    end;
-                false ->
-                    ConnectResult
-            end;
+            verify_server(#{pid => Pid,
+                            host => list_to_binary(Host),
+                            scheme => scheme(Transport)},
+                          Options);
         _ ->
             ConnectResult
     end.
 
-process_options([], Host) ->
-    {[], false, Host};
-%% See if we need to verify the identity of the server, using the identity from
-%% the certificate provided by the server. If that is the case, check whether
-%% it should be checked against the host name, or against something else
-%% (server_host_override).
-process_options(SslOptions, Host) ->
-    Default = [{verify, verify_peer},
-               {fail_if_no_peer_cert, true}],
-    case grpc_lib:keytake(verify_server_identity, SslOptions, false) of
-        {true, Options2} ->
-            {Override, Options3} = grpc_lib:keytake(server_host_override,
-                                                    Options2, Host),
-            {Default ++ Options3, true, Override};
-        {false, Options2} ->
-           {Options2, false, Host}
+verify_server(#{scheme := <<"http">>} = Connection, _) ->
+    {ok, Connection};
+verify_server(Connection, Options) ->
+    case proplists:get_value(verify_server_identity, Options, false) of
+        true ->
+            verify_server_identity(Connection, Options);
+        false ->
+            {ok, Connection}
     end.
 
-validate_peercert(Certificate, Host) ->
-    public_key:pkix_verify_hostname(Certificate, [{dns_id, Host}]).
+verify_server_identity(#{pid := Pid} = Connection, Options) ->
+    case h2_connection:get_peercert(Pid) of
+        {ok, Certificate} ->
+            validate_peercert(Connection, Certificate, Options);
+        _ ->
+            h2_connection:stop(Pid),
+            {error, no_peer_certificate}
+    end.
 
-new_stream(Connection, Service, Rpc, Encoder, Options, HandlerState) ->
+validate_peercert(#{pid := Pid, host := Host} = Connection,
+                  Certificate, Options) ->
+    Server = proplists:get_value(server_host_override,
+                                 Options, Host),
+    case public_key:pkix_verify_hostname(Certificate,
+                                         [{dns_id, Server}]) of
+        true ->
+            {ok, Connection};
+        false ->
+            h2_connection:stop(Pid),
+            {error, invalid_peer_certificate}
+    end.
+
+h2_transport(tls) -> ssl;
+h2_transport(http) -> gen_tcp.
+
+scheme(tls) -> <<"https">>;
+scheme(http) -> <<"http">>.
+
+%% If there are no options at all, SSL will not be used.  If there are any
+%% options, SSL will be used, and the ssl_options {verify, verify_peer} and
+%% {fail_if_no_peer_cert, true} are implied.
+%%
+%% verify_server_identity and server_host_override should not be passed to the
+%% connection.
+ssl_options([]) ->
+    [];
+ssl_options(Options) ->
+    Ignore = [verify_server_identity, server_host_override, 
+              verify, fail_if_no_peer_cert],
+    Default = [{verify, verify_peer},
+               {fail_if_no_peer_cert, true}],
+    {_Ignore, SslOptions} = proplists:split(Options, Ignore),
+    Default ++ SslOptions.
+
+new_stream(#{pid := Pid} = Connection, Service, Rpc, Encoder, Options, HandlerState) ->
     Compression = proplists:get_value(compression, Options, none),
     Metadata = proplists:get_value(metadata, Options, #{}),
-    StreamId = h2_connection:new_stream(Connection),
+    StreamId = h2_connection:new_stream(Pid),
     Package = Encoder:get_package_name(),
     RpcDef = Encoder:find_rpc_def(Service, Rpc),
     %% the gpb rpc def has 'input', 'output' etc.
@@ -116,24 +138,22 @@ new_stream(Connection, Service, Rpc, Encoder, Options, HandlerState) ->
             metadata => Metadata,
             compression => Compression}.
 
-send_last(Stream, Message, Headers) ->
-    send(Stream, Message, Headers, [{send_end_stream, true}]).
+send_last(Stream, Message) ->
+    send(Stream, Message, [{send_end_stream, true}]).
 
-send(Stream, Message, Headers) ->
-    send(Stream, Message, Headers, [{send_end_stream, false}]).
+send(Stream, Message) ->
+    send(Stream, Message, [{send_end_stream, false}]).
 
 send(#{stream_id := StreamId,
-       connection := Connection,
+       connection := #{pid := Connection},
        headers_sent := HeadersSent,
        metadata := Metadata
-      } = Stream, Message, Headers, Opts) ->
+      } = Stream, Message, Opts) ->
     Encoded = encode(Stream, Message),
     case HeadersSent of
         false ->
-            %% TODO: Currently there are 2 ways to send metadata/headers. Keep only the
-            %% way where they are specified with the creation of the stream.
-            DefaultHeaders = client_headers(Stream, Headers),
-            AllHeaders = maps:to_list(maps:merge(DefaultHeaders, Metadata)),
+            DefaultHeaders = default_headers(Stream),
+            AllHeaders = add_metadata(DefaultHeaders, Metadata),
             h2_connection:send_headers(Connection, StreamId, AllHeaders);
         true ->
             ok
@@ -144,31 +164,36 @@ send(#{stream_id := StreamId,
 stop_connection(StreamId) ->
     h2_connection:stop(StreamId).
 
-client_headers(#{service := Service,
-                 rpc := Rpc,
-                 package := Package,
-                 compression := Compression
-                }, Headers) ->
-    Headers1 = case Compression of
-                   none ->
-                       Headers;
-                   _ ->
-                       [{<<"grpc-encoding">>,
-                         atom_to_binary(Compression, unicode)} | Headers]
-               end,
-    EncodedHeaders = lists:foldl(fun(H, Acc) ->
-                                     {K, V} = grpc_lib:maybe_encode_header(H),
-                                     maps:put(K, V, Acc)
-                                 end, #{}, Headers1),
+default_headers(#{service := Service,
+                  rpc := Rpc,
+                  package := Package,
+                  compression := Compression,
+                  connection := #{host := Host,
+                                  scheme := Scheme}
+                 }) ->
     Path = iolist_to_binary(["/", Package, atom_to_list(Service),
                              "/", atom_to_list(Rpc)]),
-    EncodedHeaders#{<<":method">>      => <<"POST">>,
-                    <<":scheme">>      => <<"http">>,
-                    <<":path">>        => Path,
-                    <<":authority">>   => <<"localhost">>,
-                    <<"content-type">> => <<"application/grpc">>,
-                    <<"user-agent">>   => <<"chatterbox-client/0.0.1">>,
-                    <<"te">>           => <<"trailers">>}.
+    Headers1 = case Compression of
+                   none ->
+                       [];
+                   _ ->
+                       [{<<"grpc-encoding">>,
+                         atom_to_binary(Compression, unicode)}]
+               end,
+    [{<<":method">>, <<"POST">>},
+     {<<":scheme">>, Scheme},
+     {<<":path">>, Path},
+     {<<":authority">>, Host},
+     {<<"content-type">>, <<"application/grpc+proto">>},
+     {<<"user-agent">>, <<"chatterbox-client/0.0.1">>},
+     {<<"te">>, <<"trailers">>} | Headers1].
+
+add_metadata(Headers, Metadata) ->
+    lists:foldl(fun(H, Acc) -> 
+                        {K, V} = grpc_lib:maybe_encode_header(H),
+                        %% if the key exists, replace it.
+                        lists:keystore(K, 1, Acc, {K,V})
+                end, Headers, maps:to_list(Metadata)).
 
 -spec call_rpc(Stream::grpc_client:stream(),
                Message::map(),

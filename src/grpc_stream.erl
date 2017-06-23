@@ -7,8 +7,8 @@
 -behaviour(gen_server).
 
 -export([new/5, 
-         send/2, send/3, 
-         send_last/2, send_last/3,
+         send/2, 
+         send_last/2,
          get/1, rcv/1, rcv/2, stop/1]).
 
 %% gen_server behaviors
@@ -24,16 +24,10 @@ new(Connection, Service, Rpc, Encoder, Options) ->
                           {Connection, Service, Rpc, Encoder, Options}, []).
 
 send(Pid, Message) ->
-    send(Pid, Message, []).
-
-send(Pid, Message, Headers) ->
-    gen_server:call(Pid, {send, Message, Headers}).
+    gen_server:call(Pid, {send, Message}).
 
 send_last(Pid, Message) ->
-    send_last(Pid, Message, []).
-
-send_last(Pid, Message, Headers) ->
-    gen_server:call(Pid, {send_last, Message, Headers}).
+    gen_server:call(Pid, {send_last, Message}).
 
 get(Pid) ->
     gen_server:call(Pid, get).
@@ -66,11 +60,11 @@ init({Connection, Service, Rpc, Encoder, Options}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-handle_call({send_last, Message, Headers}, _From, #{stream := Stream} = State) ->
-    NewStream = grpc_client_lib:send_last(Stream, Message, Headers),
+handle_call({send_last, Message}, _From, #{stream := Stream} = State) ->
+    NewStream = grpc_client_lib:send_last(Stream, Message),
     {reply, ok, State#{stream => NewStream}};
-handle_call({send, Message, Headers}, _From, #{stream := Stream} = State) ->
-    NewStream = grpc_client_lib:send(Stream, Message, Headers),
+handle_call({send, Message}, _From, #{stream := Stream} = State) ->
+    NewStream = grpc_client_lib:send(Stream, Message),
     {reply, ok, State#{stream => NewStream}};
 handle_call(get, _From, #{queue := Queue,
                           state := StreamState} = State) ->

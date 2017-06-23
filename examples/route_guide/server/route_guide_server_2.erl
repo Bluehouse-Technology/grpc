@@ -50,7 +50,7 @@ decoder() -> route_guide.
 'GetFeature'(Message, Stream, _State) ->
     Feature = #{name => find_point(Message, data()),
                 location => Message}, 
-    case grpc:get_metadata(Stream) of
+    case grpc:metadata(Stream) of
         #{<<"password">> := <<"secret">>} ->
             {Feature, Stream};
         #{<<"compressed">> := <<"true">>} ->
@@ -63,6 +63,24 @@ decoder() -> route_guide.
             Stream2 = grpc:set_headers(Stream, 
                                          #{<<"response-bin">> => <<1,2,3,4>>}), 
             {Feature, Stream2};
+        #{<<"header_overwrite">> := <<"true">>} = Headers ->
+            Path = <<"/routeguide.RouteGuide/GetFeature">>,
+            try 
+                %% Method 1: match on stream
+                #{authority := <<"changed">>,
+                  scheme := <<"changed">>,
+                  method := <<"POST">>,
+                  path := Path} = Stream,
+                %% Method 2: via functions
+                <<"changed">> = grpc:authority(Stream),
+                <<"changed">> = grpc:scheme(Stream),
+                <<"POST">> = grpc:method(Stream),
+                Path = grpc:path(Stream),
+                {error, 3, <<"invalid argument">>, Stream}
+            catch
+                _:_Error ->
+                    {error, 13, <<"test failed">>, Stream}
+            end;
         #{<<"compression">> := <<"true">>} ->
             %% send a compressed message
             {Feature, grpc:set_compression(Stream, gzip)};
