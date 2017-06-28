@@ -9,9 +9,9 @@
          send_body/4
         ]).
 
--opaque connection() :: #{http_connection := pid(),  %% h2_connection
-                          host := binary(),
-                          scheme := binary()}.
+-type connection() :: #{http_connection := pid(),  %% h2_connection
+                        host := binary(),
+                        scheme := binary()}.
 
 -export_type([connection/0]).
 
@@ -26,7 +26,7 @@ new(Transport, Host, Port, Options) ->
     {ok, _} = application:ensure_all_started(chatterbox),
     H2Settings = chatterbox:settings(client),
     SslOptions = ssl_options(Options),
-    ConnectResult = h2_connection:start_client_link(h2_transport(Transport), 
+    ConnectResult = h2_connection:start_client_link(h2_transport(Transport),
                                                     Host, Port,
                                                     SslOptions, H2Settings),
     case ConnectResult of
@@ -108,10 +108,9 @@ scheme(http) -> <<"http">>.
 ssl_options([]) ->
     [];
 ssl_options(Options) ->
-    Ignore = [verify_server_identity, server_host_override, 
+    Ignore = [verify_server_identity, server_host_override,
               verify, fail_if_no_peer_cert],
     Default = [{verify, verify_peer},
                {fail_if_no_peer_cert, true}],
     {_Ignore, SslOptions} = proplists:split(Options, Ignore),
     Default ++ SslOptions.
-
