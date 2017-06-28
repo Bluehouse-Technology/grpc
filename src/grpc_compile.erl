@@ -184,6 +184,8 @@ print_message({{enum, Name}, Options}) ->
     ["-type ", Name, "() ::\n    ", print_options(Options), ".\n\n"].
 
 print_type_export({{msg, Name}, _Fields}) -> 
+    [Name, "/0"];
+print_type_export({{enum, Name}, _Values}) -> 
     [Name, "/0"].
 
 print_fields(Fields) -> 
@@ -196,7 +198,7 @@ print_field(#{name := Name, type := Type, occurrence := Occurrence}) ->
     [Name, 
      case {Occurrence, Type} of 
          {optional, _} -> " => ";
-         {mandatory, _} -> " := ";
+         {required, _} -> " := ";
          %% Maps are marked as 'repeated' by gpb, but in fact they 
          %% have 1 value (a single map, not a list).
          {repeated, {map, _, _}}  -> " => ";
@@ -228,9 +230,9 @@ print_type(sfixed64) -> "integer()";
 print_type(string) -> "string()";
 print_type(bool) -> "boolean()";
 print_type(bytes) -> "binary()";
-print_type(double) -> "pb_float()";
-print_type(float) -> "pb_float()";
-print_type({enum, Enum}) -> [Enum, "()"];
+print_type(double) -> "float() | infinity | '-infinity' | nan";
+print_type(float) -> "float() | infinity | '-infinity' | nan";
+print_type({enum, Enum}) -> [Enum, "() | integer()"];
 print_type({map, KeyType, ValueType}) -> 
     ["#{", print_type(KeyType), " => ", print_type(ValueType), "}"];
 print_type({msg, MsgName}) -> [MsgName, "()"].
