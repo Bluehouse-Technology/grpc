@@ -707,7 +707,7 @@ this:
     end.
 ```
 
-### Adding metatdata to a response
+### Adding metadata to a response
 The server can add metadata to the initial header that is sent to the 
 client, and/or to the final trailer using `grpc:set_headers/2` or
 `grpc:set_trailers/2`. A simplistic example that uses both 
