@@ -28,36 +28,33 @@
 
 -export([run/1, stop/0]).
 
--spec run(http|tls|authenticated) -> ok.
+-spec run(tcp|ssl|authenticated) -> ok.
 run(How) ->
     compile(),
     {ok, _} = compile:file(filename:join(test_dir(),
                                          "test_route_guide_server.erl")),
-    {ok, _} = e_grpc:start_server(grpc, test_route_guide_server, options(How)). 
+    {ok, _} = grpc:start_server(grpc, How, 10000, test_route_guide_server, options(How)). 
 
 stop() ->
-    e_grpc:stop_server(grpc).
+    grpc:stop_server(grpc).
 
-options(How) ->
-    [{port, 10000} | tls_options(How)].
-
-tls_options(http) ->
+options(tcp) ->
     [];
-tls_options(tls) ->
-    [{tls_options, 
+options(ssl) ->
+    [{transport_options, 
       [{certfile, certificate("localhost.crt")},
        {keyfile, certificate("localhost.key")},
        {cacertfile, certificate("My_Root_CA.crt")}]}].
 
 compile() ->
-    ok = e_grpc:compile("route_guide.proto", [{i, example_dir()}]),
+    ok = grpc:compile("route_guide.proto", [{i, example_dir()}]),
     {ok, _} = compile:file("route_guide.erl").
 
 example_dir() ->
-    filename:join(code:lib_dir(e_grpc, examples), "route_guide").
+    filename:join(code:lib_dir(grpc, examples), "route_guide").
 
 test_dir() ->
-    code:lib_dir(e_grpc, test).
+    code:lib_dir(grpc, test).
 
 certificate(FileName) ->
     R = filename:join([test_dir(), "certificates", FileName]),

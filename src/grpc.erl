@@ -11,7 +11,7 @@
 -module(grpc).
 
 -export([compile/1, compile/2,
-         start_server/2, start_server/3,
+         start_server/4, start_server/5,
          stop_server/1,
          send/2,
          set_headers/2,
@@ -22,10 +22,9 @@
          authority/1, scheme/1, method/1, path/1, 
          set_compression/2]).
 
--type server_option() :: {tls_options, [ranch_ssl:ssl_opt()]} |
-                         {num_acceptors, integer()} |
-                         {port, integer()} |
-                         {handler_state, term()} .
+-type option() :: {transport_options, [ranch_ssl:ssl_opt()]} |
+                  {num_acceptors, integer()} |
+                  {handler_state, term()} .
 -type stream() :: map().
 -type metadata_key() :: binary().
 -type metadata_value() :: binary().
@@ -35,7 +34,7 @@
 -type error_message() :: binary().
 -type error_response() :: {error, error_code(), error_message(), stream()}.
 
--export_type([server_option/0,
+-export_type([option/0,
               error_response/0,
               compression_method/0,
               stream/0,
@@ -45,10 +44,10 @@
 -spec compile(FileName::string()) -> ok.
 %% @equiv compile(FileName, [])
 compile(FileName) ->
-    grpc_compile:file(FileName, []).
+    grpc:compile(FileName, []).
 
 -spec compile(FileName::string(), Options::gbp_compile:opts()) -> ok.
-%% @doc Compile a .proto file to generate client stubs, server 
+%% @doc Compile a .proto file to generate server 
 %% side skeleton code and a module to encode and decode the 
 %% protobuf messages.
 %%
@@ -57,18 +56,22 @@ compile(FileName) ->
 %% from maps) and the option '{i, "."}' (so that .proto files in the 
 %% current working directory will be found).
 compile(FileName, Options) ->
-    grpc_compile:file(FileName, Options).
+    grpc_lib_compile:file(FileName, Options).
 
 -spec start_server(Name::term(), 
+                   Transport::ssl|tcp,
+                   Port::integer(),
                    Handler::module()) -> {ok, CowboyListenerPid::pid()} |
                                          {error, any()}.
-%% @equiv start_server(Name, Handler, [])
-start_server(Name, Handler) when is_atom(Handler) ->
-    start_server(Name, Handler, []).
+%% @equiv start_server(Name, Transport, Port, Handler, [])
+start_server(Name, Transport, Port, Handler) when is_atom(Handler) ->
+    start_server(Name, Transport, Port, Handler, []).
 
 -spec start_server(Name::term(),
+                   Transport::ssl|tcp,
+                   Port::integer(),
                    Handler::module(), 
-                   Options::[server_option()]) -> 
+                   Options::[option()]) -> 
   {ok, CowboyListenerPid::pid()} | {error, any()}.
 %% @doc Start a gRPC server. 
 %%
@@ -81,9 +84,9 @@ start_server(Name, Handler) when is_atom(Handler) ->
 %% .proto file using grpc:compile/1. The generated module contains skeleton
 %% functions for the RPCs, these must be extended with the actual implementation
 %% of the service. 
-start_server(Name, Handler, Options) when is_atom(Handler),
-                                          is_list(Options) ->
-    grpc_server:start(Name, Handler, Options).
+start_server(Name, Transport, Port, Handler, Options) when is_atom(Handler),
+                                                           is_list(Options) ->
+    grpc_server:start(Name, Transport, Port, Handler, Options).
 
 -spec stop_server(Name::term()) -> ok | {error, not_found}.
 %% @doc Stop a gRPC server. 

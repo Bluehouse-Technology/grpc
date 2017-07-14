@@ -6,7 +6,7 @@
 %%%
 -module(grpc_server).
 
--export([start/3]).
+-export([start/5]).
 -export([stop/1]).
 -export([init/2]).
 
@@ -19,53 +19,38 @@
 -define(GRPC_STATUS_UNAUTHENTICATED, <<"16">>).
 
 -spec start(Name::term(),
+            Transport::tcp|ssl,
+            Port::integer(),
             Handler::module(),
             Options::[grpc:server_option()]) ->
     {ok, CowboyListenerPid::pid()} | {error, any()}.
-start(Name, Handler, Options) ->
+start(Name, Transport, Port, Handler, Options) ->
     {ok, _Started} = application:ensure_all_started(grpc),
     {module, _} = code:ensure_loaded(Handler),
     HandlerState = proplists:get_value(handler_state, Options),
     Decoder = Handler:decoder(),
     {module, _} = code:ensure_loaded(Decoder),
     Acceptors = proplists:get_value(nr_acceptors, Options, 100),
-    {UseTls, TlsOptions, HandlerOptions} = 
-        case proplists:get_value(tls_options, Options, undefined) of
-            undefined ->
-                {false, [], #{}};
-            V -> 
-                case proplists:get_value(client_cert_dir, Options, undefined) of
-                    undefined ->
-                        {true, V, #{}};
-                    Dir ->
-                        {true, V, #{auth_fun => grpc_lib:auth_fun(Dir)}}
-                end
-        end,
+    AuthFun = get_authfun(Transport, Options),
     %% All requests are dispatched to this same module (?MODULE),
     %% which means that `init/2` below will be called for each
     %% request.
     Dispatch = cowboy_router:compile([
 	{'_', [{"/:service/:method", 
                 ?MODULE, 
-                HandlerOptions#{handler_state => HandlerState,
-                                handler => Handler,
-                                decoder => Decoder}}]}]),
-    TransportOpts = case proplists:get_value(port, Options) of
-                        undefined ->
-                            [];
-                        Port -> 
-                            [{port, Port}]
-                    end,
+                #{handler_state => HandlerState,
+                  auth_fun => AuthFun,
+                  handler => Handler,
+                  decoder => Decoder}}]}]),
     ProtocolOpts = #{env => #{dispatch => Dispatch},
                      http2_recv_timeout => infinity},
-    case UseTls of
-        false ->
-            {ok, _} = cowboy:start_clear(Name, Acceptors, TransportOpts, 
-                                         ProtocolOpts);
-        true ->
-            {ok, _} = cowboy:start_tls(Name, Acceptors, 
-                                       TlsOptions ++ TransportOpts, 
-                                       ProtocolOpts)
+    case Transport of
+        tcp ->
+            cowboy:start_clear(Name, Acceptors, [{port, Port}], ProtocolOpts);
+        ssl ->
+            TransportOpts = [{port, Port} |
+                             proplists:get_value(transport_options, Options, [])],
+            cowboy:start_tls(Name, Acceptors, TransportOpts, ProtocolOpts)
     end.
 
 -spec stop(Name::term()) -> ok.
@@ -129,7 +114,25 @@ process_header(Key, Value, #{metadata := Metadata} = Acc) ->
     {_, DecodedValue} = grpc_lib:maybe_decode_header({Key, Value}),
     Acc#{metadata => Metadata#{Key => DecodedValue}}.
 
-authenticate(Req, #{auth_fun := AuthFun}) ->
+%% If an authorisation fucntion is specified, use it. If not, there is a 
+%% default that looks for client certificates in client_cert_dir (if that 
+%% is specified).
+get_authfun(ssl, Options) ->
+    case proplists:get_value(auth_fun, Options) of
+        undefined ->
+            case proplists:get_value(client_cert_dir, Options) of
+                undefined -> 
+                    undefined;
+                Dir ->
+                    grpc_lib:auth_fun(Dir)
+            end;
+        Fun ->
+            Fun
+    end;
+get_authfun(_, _) ->
+    undefined.
+
+authenticate(Req, #{auth_fun := AuthFun}) when is_function(AuthFun) ->
     case cowboy_req:peercert(Req) of
         {ok, Cert} ->
             AuthFun(Cert);
@@ -238,13 +241,11 @@ execute(Msg, #{handler := Module,
                 throw:{Code, ErrorMsg} ->
                     {error, Code, ErrorMsg};
                 _:_ ->
-                    %%io:format("error in handler function, ~p~n", [erlang:get_stacktrace()]),
                     {error, ?GRPC_STATUS_INTERNAL_INT, 
                      <<"Internal server error">>, Stream}
             end
     catch
         _:_ ->
-            %%io:format("error decoding message, ~p~n", [erlang:get_stacktrace()]),
             {error, ?GRPC_STATUS_INTERNAL_INT, 
              <<"Error parsing request protocol buffer">>, Stream}
     end.

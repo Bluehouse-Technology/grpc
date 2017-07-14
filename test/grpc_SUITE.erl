@@ -23,7 +23,7 @@
 %% Description: Require variables and set default values for the suite
 %%--------------------------------------------------------------------
 suite() -> 
-    [].
+    [{timetrap, {seconds, 5}}].
 
 %%--------------------------------------------------------------------
 %% Function: init_per_suite(Config) -> Config
@@ -35,7 +35,6 @@ suite() ->
 %% variable, but should NOT alter/remove any existing entries.
 %%--------------------------------------------------------------------
 init_per_suite(Config) ->
-    application:set_env(lager, error_logger_redirect, false),
     Config.
 
 %%--------------------------------------------------------------------
@@ -77,6 +76,7 @@ groups() ->
         ,run_getfeature
         ,getfeature_client
         ,run_listfeatures
+        ,stop_stream
         ,run_routechat
         ,run_recordroute
         ]},
@@ -90,6 +90,10 @@ groups() ->
         ,binary_metadata_from_server
         ,header_overwrite
         ]},
+     {h2_client, [sequence],
+      [compile_example_3
+       ,start_server_3
+       ,receive_many_messages]},
      {compressed, [sequence],
         [start_server_2
         ,getfeature_compressed_request
@@ -113,24 +117,28 @@ groups() ->
     ].
 
 init_per_group(Group, Config) ->
+    %%H2Client = grpc_client_chatterbox_adapter,
+    H2Client = http2_client,
     Port = case Group of
                tutorial -> 10000;
                metadata -> 10000;
                compressed -> 10000;
                security -> 10000;
                authenticated -> 10000;
-               security_issues -> 10000
+               security_issues -> 10000;
+               _ -> 10000
            end,
-    [{port, Port} | Config].
+    [{port, Port}, {server, Group}, {h2_client, H2Client} | Config].
 
 end_per_group(Group, _Config) 
   when Group == tutorial;
        Group == metadata;
+       Group == h2_client;
        Group == security;
        Group == compressed;
        Group == authenticated;
        Group == security_issues ->
-    ok = grpc:stop_server(grpc);
+    ok = grpc:stop_server(Group);
 end_per_group(_, _Config) ->
     ok.
 
@@ -145,6 +153,7 @@ all() ->
     [
      {group, tutorial},
      {group, metadata},
+     {group, h2_client},
      {group, compressed},
      {group, security},
      {group, authenticated},
@@ -158,13 +167,14 @@ all() ->
 compile_routeguide_proto(_Config) ->
     ExampleDir = filename:join(code:lib_dir(grpc, examples), "route_guide"),
     ok = grpc:compile("route_guide.proto", [{i, ExampleDir}]),
+    ok = grpc_client:compile("route_guide.proto", [{i, ExampleDir}]),
     true = lists:all(fun (F) ->
                          filelib:is_file(F) 
                      end, 
                      ["route_guide.erl",
                       "route_guide_server.erl",
                       "route_guide_client.erl"
-                      ]).
+                     ]).
 
 compile_routeguide_generated(_Config) ->
     true = lists:all(fun (F) ->
@@ -183,23 +193,24 @@ compile_routeguide_example(_Config) ->
 
 start_routeguide_server(Config) ->
     Port = port(Config),
-    {ok, _} = grpc:start_server(grpc, route_guide_server_1, [{port, Port}]). 
+    Server = server(Config),
+    {ok, _} = grpc:start_server(Server, tcp, Port, route_guide_server_1, []). 
 
 run_getfeature(Config) ->
-    process_flag(trap_exit, true),
     Port = port(Config),
-    {ok, Connection} = grpc_client:connect(http, "localhost", Port),
+    {ok, Connection} = grpc_client:connect(tcp, "localhost", Port,
+                                           [{http2_client, h2_client(Config)}]),
     {ok, #{result := #{name := ?BVM_TRAIL}}} = feature(Connection,
                                                        ?BVM_TRAIL_POINT).
 getfeature_client(Config) ->
     Port = port(Config),
-    {ok, Connection} = grpc_client:connect(http, "localhost", Port),
+    {ok, Connection} = grpc_client:connect(tcp, "localhost", Port, [{http2_client, h2_client(Config)}]),
     {ok, #{result := #{name := ?BVM_TRAIL}}} =
         route_guide_client:'GetFeature'(Connection, ?BVM_TRAIL_POINT, []).
 
 getfeature_compressed_request(Config) ->
     Port = port(Config),
-    {ok, Connection} = grpc_client:connect(http, "localhost", Port),
+    {ok, Connection} = grpc_client:connect(tcp, "localhost", Port, [{http2_client, h2_client(Config)}]),
     {ok, #{result := #{name := ?BVM_TRAIL}}} = 
         feature(Connection,
                 ?BVM_TRAIL_POINT,
@@ -211,7 +222,7 @@ getfeature_compressed_request(Config) ->
 
 getfeature_compressed_response(Config) ->
     Port = port(Config),
-    {ok, Connection} = grpc_client:connect(http, "localhost", Port),
+    {ok, Connection} = grpc_client:connect(tcp, "localhost", Port, [{http2_client, h2_client(Config)}]),
     {ok, #{result := #{name := ?BVM_TRAIL}}} = 
         feature(Connection,
                 ?BVM_TRAIL_POINT,
@@ -228,9 +239,7 @@ getfeature_compressed_response(Config) ->
                  {metadata, #{<<"compression">> => <<"true">>}}]).
 
 run_listfeatures(Config) ->
-    process_flag(trap_exit, true),
-    Port = port(Config),
-    {ok, Connection} = grpc_client:connect(http, "localhost", Port),
+    {ok, Connection} = grpc_client:connect(tcp, "localhost", port(Config), [{http2_client, h2_client(Config)}]),
     {ok, Stream} = grpc_client:new_stream(Connection, 'RouteGuide', 
                                             'ListFeatures', route_guide),
     P1 = #{latitude => 1, longitude => 2}, 
@@ -244,16 +253,17 @@ run_listfeatures(Config) ->
             name := "Louvre"}} = grpc_client:get(Stream).
 
 run_routechat(Config) ->
-    {ok, Connection} = grpc_client:connect(http, "localhost", port(Config)),
+    {ok, Connection} = grpc_client:connect(tcp, "localhost", port(Config), [{http2_client, h2_client(Config)}]),
     {ok, Stream} = grpc_client:new_stream(Connection, 'RouteGuide', 
                                             'RouteChat', route_guide),
+    timer:sleep(500),
+    empty = grpc_client:get(Stream),
     P1 = #{latitude => 1, longitude => 2}, 
     P2 = #{latitude => 3, longitude => 5},
     ok = grpc_client:send(Stream, #{location => P1, 
                                       message => "something about P1"}),
     ok = grpc_client:send(Stream, #{location => P2, 
                                       message => "something about P2"}),
-    timer:sleep(500),
     empty = grpc_client:get(Stream),
     {error, timeout} = grpc_client:rcv(Stream, 10),
     ok = grpc_client:send(Stream, #{location => P1, 
@@ -262,8 +272,27 @@ run_routechat(Config) ->
     {data,#{location := #{latitude := 1,longitude := 2}, 
             message := "something about P1"}} = grpc_client:rcv(Stream, 500).
 
+stop_stream(Config) ->
+    {ok, Connection} = grpc_client:connect(tcp, "localhost", port(Config), [{http2_client, h2_client(Config)}]),
+    {ok, Stream} = grpc_client:new_stream(Connection, 'RouteGuide', 
+                                            'RouteChat', route_guide),
+    timer:sleep(500),
+    empty = grpc_client:get(Stream),
+    P1 = #{latitude => 1, longitude => 2}, 
+    P2 = #{latitude => 3, longitude => 5},
+    ok = grpc_client:send(Stream, #{location => P1, 
+                                      message => "something about P1"}),
+    ok = grpc_client:send(Stream, #{location => P2, 
+                                      message => "something about P2"}),
+    empty = grpc_client:get(Stream),
+    {error, timeout} = grpc_client:rcv(Stream, 10),
+    ok = grpc_client:send(Stream, #{location => P1, 
+                                      message => "more about P1"}),
+    {headers,#{<<":status">> := <<"200">>}} = grpc_client:rcv(Stream, 500),
+    ok = grpc_client:stop_stream(Stream).
+
 run_recordroute(Config) ->
-    {ok, Connection} = grpc_client:connect(http, "localhost", port(Config)),
+    {ok, Connection} = grpc_client:connect(tcp, "localhost", port(Config), [{http2_client, h2_client(Config)}]),
     {ok, Stream} = grpc_client:new_stream(Connection, 'RouteGuide', 
                                             'RecordRoute', route_guide),
     P1 = #{latitude => 1, longitude => 2}, 
@@ -276,25 +305,34 @@ run_recordroute(Config) ->
 compile_example_2(_Config) ->
     compile_example("route_guide_server_2.erl").
 
+compile_example_3(_Config) ->
+    compile_example("route_guide_server_3.erl").
+
 start_server_2(Config) ->
-    {ok, _} = grpc:start_server(grpc, route_guide_server_2, [{port, port(Config)}]). 
+    Server = server(Config),
+    {ok, _} = grpc:start_server(Server, tcp, port(Config), route_guide_server_2, []). 
+
+start_server_3(Config) ->
+    Server = server(Config),
+    {ok, _} = grpc:start_server(Server, tcp, port(Config), route_guide_server_3, []). 
 
 metadata_from_client(Config) ->
-    {ok, Connection} = grpc_client:connect(http, "localhost", port(Config)),
+    {ok, Connection} = grpc_client:connect(tcp, "localhost", port(Config),
+                                           [{http2_client, h2_client(Config)}]),
     {ok, #{result := #{name := ?BVM_TRAIL}}} = 
         feature(Connection,
                 ?BVM_TRAIL_POINT,
                 [{metadata, #{<<"password">> => <<"secret">>}}]).
 
 binary_metadata_from_client(Config) ->
-    {ok, Connection} = grpc_client:connect(http, "localhost", port(Config)),
+    {ok, Connection} = grpc_client:connect(tcp, "localhost", port(Config), [{http2_client, h2_client(Config)}]),
     {ok, #{result := #{name := ?BVM_TRAIL}}} = 
         feature(Connection,
                 ?BVM_TRAIL_POINT,
                 [{metadata, #{<<"metadata-bin">> => <<1,2,3,4>>}}]).
 
 binary_metadata_from_server(Config) ->
-    {ok, Connection} = grpc_client:connect(http, "localhost", port(Config)),
+    {ok, Connection} = grpc_client:connect(tcp, "localhost", port(Config), [{http2_client, h2_client(Config)}]),
     {ok, #{result := #{name := ?BVM_TRAIL},
            headers := #{<<"response-bin">> := <<1,2,3,4>>}}} = 
         feature(Connection,
@@ -302,7 +340,7 @@ binary_metadata_from_server(Config) ->
                 [{metadata, #{<<"metadata-bin-response">> => <<"true">>}}]).
 
 header_overwrite(Config) ->
-    {ok, Connection} = grpc_client:connect(http, "localhost", port(Config)),
+    {ok, Connection} = grpc_client:connect(tcp, "localhost", port(Config), [{http2_client, h2_client(Config)}]),
     {error, #{error_type := grpc,
               grpc_status := 3,
               status_message := <<"invalid argument">>}} = 
@@ -312,17 +350,8 @@ header_overwrite(Config) ->
                               <<":authority">> => <<"changed">>,
                               <<":scheme">> => <<"changed">>}}]).
 
-error_response(Config) ->
-    {ok, Connection} = grpc_client:connect(http, "localhost", port(Config)),
-    {error, #{error_type := grpc,
-              grpc_status := 7,
-              status_message := <<"permission denied">>}} =
-        feature(Connection,
-                ?BVM_TRAIL_POINT,
-                [{metadata, #{<<"password">> => <<"sekret">>}}]).
-
 metadata_from_server(Config) ->
-    {ok, Connection} = grpc_client:connect(http, "localhost", port(Config)),
+    {ok, Connection} = grpc_client:connect(tcp, "localhost", port(Config), [{http2_client, h2_client(Config)}]),
     {ok, Stream} = grpc_client:new_stream(Connection, 'RouteGuide', 
                                             'ListFeatures', route_guide),
     P1 = #{latitude => 1, longitude => 2}, 
@@ -330,9 +359,7 @@ metadata_from_server(Config) ->
     ok = grpc_client:send_last(Stream, #{hi => P1, lo => P2}),
     %% A little bit of time will pass before the response arrives...
     timer:sleep(500),
-    {headers,#{<<":status">> := <<"200">>,
-               <<"info">> := <<"this is a test-implementation">>}} = 
-        grpc_client:get(Stream),
+    {headers,_} = grpc_client:get(Stream),
     {data,#{location := #{latitude := 4,
                           longitude := 5}, 
             name := "Louvre"}} = grpc_client:get(Stream),
@@ -342,93 +369,119 @@ metadata_from_server(Config) ->
         grpc_client:get(Stream),
     eof = grpc_client:get(Stream).
 
+error_response(Config) ->
+    {ok, Connection} = grpc_client:connect(tcp, "localhost", port(Config), [{http2_client, h2_client(Config)}]),
+    {error, #{error_type := grpc,
+              grpc_status := 7,
+              status_message := <<"permission denied">>}} =
+        feature(Connection,
+                ?BVM_TRAIL_POINT,
+                [{metadata, #{<<"password">> => <<"sekret">>}}]).
+
+receive_many_messages(Config) ->
+    {ok, Connection} = grpc_client:connect(tcp, "localhost", port(Config), [{http2_client, h2_client(Config)}]),
+    Count = 30,
+    Size = 3000,
+    Options = [{metadata, #{<<"nr_of_points">> => integer_to_binary(Count),
+                            <<"size">> => integer_to_binary(Size)}}],
+    {ok, Stream} = grpc_client:new_stream(Connection, 'RouteGuide', 
+                                          'ListFeatures', route_guide, Options),
+    P1 = #{latitude => 1, longitude => 2}, 
+    P2 = #{latitude => 3, longitude => 5},
+    ok = grpc_client:send_last(Stream, #{hi => P1, lo => P2}),
+    %% A little bit of time will pass before the response arrives...
+    timer:sleep(500),
+    {headers, _} = grpc_client:get(Stream),
+    lists:foreach(fun (_) ->
+                      {data, _} = grpc_client:get(Stream)
+                  end, lists:seq(1, Count)),
+    {headers, _} = grpc_client:get(Stream),
+    eof = grpc_client:get(Stream).
+
 start_server_secure(Config) ->
     %% This will allow the client to use SSL and to ensure that it is indeed talking to 
     %% localhost.
-    TlsOptions = [{certfile, certificate("localhost.crt")},
+    Server = server(Config),
+    SslOptions = [{certfile, certificate("localhost.crt")},
                   {keyfile, certificate("localhost.key")},
                   {cacertfile, certificate("My_Root_CA.crt")}],
-    {ok, _} = grpc:start_server(grpc, route_guide_server_1, 
-                                [{port, port(Config)},
-                                 {tls_options, TlsOptions}]). 
+    {ok, _} = grpc:start_server(Server, ssl, port(Config), route_guide_server_1, 
+                                [{transport_options, SslOptions}]). 
 
 secure_request(Config) ->
-    process_flag(trap_exit, true),
-    TlsOptions = [{verify_server_identity, true},
-                  {cacertfile, certificate("My_Root_CA.crt")}],
-    {ok, Connection} = grpc_client:connect(tls, "localhost", port(Config), TlsOptions),
+    Options = [{verify_server_identity, true}, {http2_client, h2_client(Config)},
+               {transport_options, [{cacertfile, certificate("My_Root_CA.crt")}]}],
+    {ok, Connection} = grpc_client:connect(ssl, "localhost", port(Config), Options),
     {ok, #{result := #{name := ?BVM_TRAIL}}} = feature(Connection,
                                                        ?BVM_TRAIL_POINT).
 tls_connection_fails(Config) ->
     %% Fails because the client does not provide a certificate
-    process_flag(trap_exit, true),
     %%VerifyFun = fun(Certificate, Event, []) -> 
                     %%ct:pal("Certificate: ~p~nEvent: ~p~n", 
                            %%[Certificate, Event]),
                     %%{valid, []}
                 %%end,
-    TlsOptions = [{verify, verify_peer},
-                  {cacertfile, certificate("My_Root_CA.crt")}],
-                  %%{verify_fun, {VerifyFun, []}}],
+    Options = [{http2_client, h2_client(Config)},
+               {transport_options, [{cacertfile, certificate("My_Root_CA.crt")}]}],
     {error, {tls_alert, "handshake failure"}} = 
-        grpc_client:connect(tls, "localhost", port(Config), TlsOptions).
+        grpc_client:connect(ssl, "localhost", port(Config), Options).
 
 start_server_wrong_certificate(Config) ->
     %% Start the server with the certificate for "mydomain.com" rather
     %% than "localhost".
+    Server = server(Config),
     TlsOptions = [{certfile, certificate("mydomain.com.crt")},
                   {keyfile, certificate("mydomain.com.key")},
                   {cacertfile, certificate("My_Root_CA.crt")}],
-    {ok, _} = grpc:start_server(grpc, route_guide_server_1, 
-                                [{port, port(Config)},
-                                 {tls_options, TlsOptions}]). 
+    {ok, _} = grpc:start_server(Server, ssl, port(Config), route_guide_server_1, 
+                                [{transport_options, TlsOptions}]). 
 
 ssl_without_server_identification(Config) ->
-    process_flag(trap_exit, true),
-    TlsOptions = [{verify, verify_peer},
-                  {fail_if_no_peer_cert, true},
-                  {cacertfile, certificate("My_Root_CA.crt")}],
-    {ok, Connection} = grpc_client:connect(tls, "localhost", port(Config), TlsOptions),
+    Options = [{http2_client, h2_client(Config)},
+               {transport_options, [{cacertfile, certificate("My_Root_CA.crt")}]}],
+    %%TlsOptions = [{verify, verify_peer},
+                  %%{fail_if_no_peer_cert, true},
+                  %%{cacertfile, certificate("My_Root_CA.crt")}],
+    {ok, Connection} = grpc_client:connect(ssl, "localhost", port(Config), Options),
     {ok, #{result := #{name := ?BVM_TRAIL}}} = feature(Connection,
                                                        ?BVM_TRAIL_POINT).
 
 invalid_peer_certificate(Config) ->
     %% Fails because the server uses the wrong certificate.
-    TlsOptions = [{verify_server_identity, true},
-                  {cacertfile, certificate("My_Root_CA.crt")}
-                  ],
+    Options = [{verify_server_identity, true}, {http2_client, h2_client(Config)},
+               {transport_options, [{cacertfile, certificate("My_Root_CA.crt")}]}],
     {error, invalid_peer_certificate} = 
-        grpc_client:connect(tls, "localhost", port(Config), TlsOptions).
+        grpc_client:connect(ssl, "localhost", port(Config), Options).
 
 start_server_authenticating(Config) ->
-    process_flag(trap_exit, true),
+    Server = server(Config),
     TlsOptions = [{certfile, certificate("localhost.crt")},
                   {keyfile, certificate("localhost.key")},
                   {cacertfile, certificate("My_Root_CA.crt")},
                   {fail_if_no_peer_cert, true},
                   {verify, verify_peer}],
-    {ok, _} = grpc:start_server(grpc, route_guide_server_1, 
-                                [{port, port(Config)},
-                                 {client_cert_dir, client_cert_dir()},
-                                 {tls_options, TlsOptions}]). 
+    {ok, _} = grpc:start_server(Server, ssl, port(Config), route_guide_server_1, 
+                                [{client_cert_dir, client_cert_dir()},
+                                 {http2_client, h2_client(Config)},
+                                 {transport_options, TlsOptions}]). 
 
 authenticated_request(Config) ->
-    process_flag(trap_exit, true),
-    TlsOptions = [{certfile, certificate("127.0.0.1.crt")},
-                  {keyfile, certificate("127.0.0.1.key")},
-                  {cacertfile, certificate("My_Root_CA.crt")}],
-    {ok, Connection} = grpc_client:connect(tls, "localhost", port(Config), TlsOptions),
+    Options = [{http2_client, h2_client(Config)},
+               {transport_options, [{certfile, certificate("127.0.0.1.crt")},
+                                    {keyfile, certificate("127.0.0.1.key")},
+                                    {cacertfile, certificate("My_Root_CA.crt")}]}],
+    {ok, Connection} = grpc_client:connect(ssl, "localhost", port(Config), Options),
     {ok, #{result := #{name := ?BVM_TRAIL}}} = feature(Connection,
                                                        ?BVM_TRAIL_POINT).
 wrong_client_certificate(Config) ->
-    process_flag(trap_exit, true),
     %% Provide a certificate that is not in the list of certificates
     %% that is accepted by the server. (Reusing "localhost" for that 
     %% purpose).
-    TlsOptions = [{certfile, certificate("localhost.crt")},
-                  {keyfile, certificate("localhost.key")},
-                  {cacertfile, certificate("My_Root_CA.crt")}],
-    {ok, Connection} = grpc_client:connect(tls, "localhost", port(Config), TlsOptions),
+    Options = [{http2_client, h2_client(Config)},
+               {transport_options, [{certfile, certificate("localhost.crt")},
+                                    {keyfile, certificate("localhost.key")},
+                                    {cacertfile, certificate("My_Root_CA.crt")}]}],
+    {ok, Connection} = grpc_client:connect(ssl, "localhost", port(Config), Options),
     {error, #{error_type := grpc,
               grpc_status := 16}} =
         feature(Connection, ?BVM_TRAIL_POINT).
@@ -469,4 +522,10 @@ certificate(FileName) ->
 
 port(Config) ->
     proplists:get_value(port, Config).
+
+server(Config) ->
+    proplists:get_value(server, Config).
+
+h2_client(Config) ->
+    proplists:get_value(h2_client, Config).
 

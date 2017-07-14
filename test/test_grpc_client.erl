@@ -11,7 +11,7 @@
 %% $> make shell
 %% 1> cd("test").
 %% 2> c(test_grpc_client).
-%% 3> test_grpc_client:run(http). %% run a test without ssl
+%% 3> test_grpc_client:run(tcp). %% run a test without ssl
 %% 
 %% To test with tls:
 %% - stop the go server (^C)
@@ -21,7 +21,7 @@
 %% 
 %% Run the test client with the tls option:
 %% 
-%% 4> test_grpc_client:run(tls).
+%% 4> test_grpc_client:run(ssl).
 
 -module(test_grpc_client).
 
@@ -30,7 +30,7 @@
 
 -export([run/1]).
 
--spec run(http|tls|authenticated) -> ok.
+-spec run(tcp|ssl|authenticated) -> ok.
 run(How) ->
     compile(),
     SslOptions = ssl_options(How),
@@ -42,16 +42,16 @@ run(How) ->
 transport(P) ->
     P.
 
-ssl_options(http) ->
+ssl_options(tcp) ->
     [];
-ssl_options(tls) ->
+ssl_options(ssl) ->
     [{verify_server_identity, true},
-     {cacertfile, certificate("ca.pem")},
-     {server_host_override, "waterzooi.test.google.be"}].
+     {server_host_override, "waterzooi.test.google.be"},
+     {transport_options, [{cacertfile, certificate("ca.pem")}]}].
 
 get_feature(Transport, SslOptions, StreamOptions) ->
     {ok, Connection} = grpc_client:connect(Transport, "localhost", 
-                                             10000, SslOptions),
+                                           10000, SslOptions),
     {ok, Stream} = grpc_client:new_stream(Connection, 'RouteGuide',
                                             'GetFeature', route_guide,
                                             StreamOptions),

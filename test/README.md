@@ -2,7 +2,7 @@
 
 The examples below assume that $GRPC_ROOT is set to the directory that
 contains the grpc repository, and $GO_BIN is the directory that contains
-the go client and server executables.
+the go client and server executables. (`$> export GO_BIN=...`).
 
 ## Common test
 
@@ -31,7 +31,7 @@ go install google.golang.org\grpc\examples\route_guide\server
 $> make shell
 1> cd("test").
 2> c(test_grpc_client).
-3> test_grpc_client:run(http). %% run a test without ssl
+3> test_grpc_client:run(tcp). %% run a test without ssl
 ```
 
 _To test with tls:_
@@ -39,9 +39,7 @@ _To test with tls:_
 - start the go server again, this time with tls: 
 
 ```
-$> $GO_BIN/server -tls -cert_file $GRPC_ROOT/test/certificates/server1.pem
--key_file $GRPC_ROOT/test/certificates/server1.key -json_db_file
-$GRPC_ROOT/test/testdata/route_guide_db.json
+$> $GO_BIN/server -tls -cert_file $GRPC_ROOT/test/certificates/server1.pem -key_file $GRPC_ROOT/test/certificates/server1.key -json_db_file $GRPC_ROOT/test/testdata/route_guide_db.json
 ```
 
 Run the test client with the tls option:
@@ -58,7 +56,7 @@ Start the Erlang server (without tls):
 $> make shell
 1> cd(test).
 2> c(test_grpc_server).
-3> test_grpc_server:run(http).
+3> test_grpc_server:run(tcp).
 ```
 
 Run the go client:
@@ -70,8 +68,8 @@ $> $GO_BIN/client
 To test with ssl:
 
 ```
-4> test_grpc_server:stop()
-5> test_grpc_server:run(tls).
+4> test_grpc_server:stop().
+5> test_grpc_server:run(ssl).
 ```
 
 Tun the go client with ssl:
