@@ -9,7 +9,7 @@ DEPS = cowboy grpc_lib
 dep_cowboy = git https://github.com/willemdj/cowboy
 dep_grpc_lib = git https://github.com/Bluehouse-Technology/grpc_lib
 
-TEST_DEPS = http2_client
-dep_http2_client = git https://github.com/Bluehouse-Technology/http2_client
+TEST_DEPS = grpc_client
+dep_grpc_client = git https://github.com/Bluehouse-Technology/grpc_client
 
 include erlang.mk
