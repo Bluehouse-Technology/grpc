@@ -6,7 +6,8 @@ An implementation of the client side is alo available: [grpc_client](https://git
 
 ## A quick "Hello world" example
 
-GRPC services are specified in a .PROTO file (helloworld.proto):
+The file "helloworld.proto" contains the specification for a simple "hello
+world" service:
 
 ```
 syntax = "proto3";
@@ -32,7 +33,7 @@ message HelloReply {
 
 Compile this file (from the Erlang shell):
 ```
-1> grpc:compile(
+1> grpc:compile("helloworld.proto").
 ```
 This creates two files: `helloworld.erl`  and `helloworld_server.erl`. The
 first file contains code to encode and decode the gRPC messages (in
@@ -81,9 +82,9 @@ erlang client
       trailers => #{<<"grpc-status">> => <<"0">>}}}
 ```
 
-This is a rather trivial and unintereting example - see the
+This is a trivial and uninteresting example - see the
 [tutorial](/doc/tutorial.md) for more examples and further details, or the
-[reference documentation](/doc/index.html) for more details of the
+[reference documentation](https://github.com/Bluehouse-Technology/grpc/wiki/gRPC-reference-documentation) for more details of the
 individual modules and functions.
 
 ## Build
