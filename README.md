@@ -66,7 +66,7 @@ Now compile the modules and start the server:
 To see if it actually works you will need a grpc client. These exist in
 many languages (see [grpc.io](https://grpc.io)), but here we will use the
 erlang client
-([grpc_client)[(https://github.com/Bluehouse-Technology/grpc_client)]:
+([grpc_client](https://github.com/Bluehouse-Technology/grpc_client)):
 
 ```erlang
 1> grpc_client:compile("helloworld.proto").
