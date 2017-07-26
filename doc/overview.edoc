@@ -1,1 +1,7 @@
 @title grpc - an Erlang implementation of gRPC
+
+@doc This is the implementation of a gRPC server. For the client side, see <a href="https://github.com/Bluehouse-Technology/grpc_client">grpc_client</a>.
+
+For an introduction and examples, see the <a href="https://github.com/Bluehouse-Technology/grpc/blob/master/doc/tutorial.md">tutorial</a>
+
+For more information on gRPC in general, see <a href="https:grpc.io">the gRPC homepage</a>.

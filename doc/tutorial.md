@@ -1,14 +1,14 @@
 <p class="lead">This tutorial provides a basic Erlang programmer's introduction to working with gRPC.</p>
 
-> _This is an Erlang version of the tutorial that is available for several
-> other languages on grpc.io, see for example
-> [the C version](http://www.grpc.io/docs/tutorials/basic/c.html).
->
-> The tutorial covers both the client and the server side of the Erlang gRPC
-> implementation. The implementations are in different repositories:
->
-> - Client: [grpc_client](https://github.com/Bluehouse-Technology/grpc_client)
-> - Server: [grpc](https://github.com/Bluehouse-Technology/grpc)_
+This is an Erlang version of the tutorial that is available for several
+other languages on grpc.io, see for example
+[the C version](http://www.grpc.io/docs/tutorials/basic/c.html).
+
+The tutorial covers both the client and the server side of the Erlang gRPC
+implementation. The implementations are in different repositories:
+
+- Client: [grpc_client](https://github.com/Bluehouse-Technology/grpc_client)
+- Server: [grpc](https://github.com/Bluehouse-Technology/grpc)
 
 By walking through this example you'll learn how to:
 

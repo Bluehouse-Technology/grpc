@@ -25,7 +25,6 @@
 -type option() :: {transport_options, [ranch_ssl:ssl_opt()]} |
                   {num_acceptors, integer()} |
                   {handler_state, term()} .
--type stream() :: map().
 -type metadata_key() :: binary().
 -type metadata_value() :: binary().
 -type metadata() :: #{metadata_key() => metadata_value()}.
@@ -33,6 +32,7 @@
 -type error_code() :: integer().
 -type error_message() :: binary().
 -type error_response() :: {error, error_code(), error_message(), stream()}.
+-opaque stream() :: map().
 
 -export_type([option/0,
               error_response/0,
@@ -51,7 +51,7 @@ compile(FileName) ->
 %% side skeleton code and a module to encode and decode the 
 %% protobuf messages.
 %%
-%% refer to gbp for the options. grpc will always use the options
+%% Refer to gbp for the options. gRPC will always use the options
 %% 'maps' (so that the protobuf messages are translated to and 
 %% from maps) and the option '{i, "."}' (so that .proto files in the 
 %% current working directory will be found).
@@ -75,7 +75,7 @@ start_server(Name, Transport, Port, Handler) when is_atom(Handler) ->
   {ok, CowboyListenerPid::pid()} | {error, any()}.
 %% @doc Start a gRPC server. 
 %%
-%% The Name is used to this server in future calls, in particular when stopping
+%% The Name is used to identify this server in future calls, in particular when stopping
 %% the server.
 %%
 %% The Handler module must export functions to provide the name of the 
@@ -168,32 +168,32 @@ send_headers(#{cowboy_req := Req,
     Stream#{cowboy_req => cowboy_req:stream_reply(200, AllHeaders, Req),
             headers_sent => true}.
 
--spec metadata(stream()) -> metadata().
+-spec metadata(Stream::stream()) -> metadata().
 %% @doc Get the metadata that was sent by the client.
 %%
-%% Note that this will in fact provide all the headers, except for :method,
-%% :authority, :scheme and :path (there are separate functions to get access to
-%% those). But if there is for example a grpc-timeout header this will also be 
-%% returned as metadata.
+%% Note that this will in fact provide all the headers (so not just the
+%% metadata), except for :method, :authority, :scheme and :path (there are
+%% separate functions to get access to those). But if there is for example a
+%% grpc-timeout header this will also be returned as metadata.
 metadata(#{metadata := Metadata}) ->
     Metadata.
 
--spec authority(stream()) -> binary().
+-spec authority(Stream::stream()) -> binary().
 %% @doc Get the value for the :authority header.
 authority(#{authority := Value}) ->
     Value.
 
--spec scheme(stream()) -> binary().
+-spec scheme(Stream::stream()) -> binary().
 %% @doc Get the value for the :scheme header.
 scheme(#{scheme := Value}) ->
     Value.
 
--spec path(stream()) -> binary().
+-spec path(Stream::stream()) -> binary().
 %% @doc Get the value for the :path header.
 path(#{path := Value}) ->
     Value.
 
--spec method(stream()) -> binary().
+-spec method(Stream::stream()) -> binary().
 %% @doc Get the value for the :method header.
 method(#{method := Value}) ->
     Value.

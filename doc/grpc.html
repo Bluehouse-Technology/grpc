@@ -1,0 +1,209 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Module grpc</title>
+<link rel="stylesheet" type="text/css" href="stylesheet.css" title="EDoc">
+</head>
+<body bgcolor="white">
+<div class="navbar"><a name="#navbar_top"></a><table width="100%" border="0" cellspacing="0" cellpadding="2" summary="navigation bar"><tr><td><a href="overview-summary.html" target="overviewFrame">Overview</a></td><td><a href="http://www.erlang.org/"><img src="erlang.png" align="right" border="0" alt="erlang logo"></a></td></tr></table></div>
+<hr>
+
+<h1>Module grpc</h1>
+<ul class="index"><li><a href="#description">Description</a></li><li><a href="#types">Data Types</a></li><li><a href="#index">Function Index</a></li><li><a href="#functions">Function Details</a></li></ul>This is the interface for grpc.
+
+
+<h2><a name="description">Description</a></h2><p>This is the interface for grpc.</p>
+ 
+  <p>This module contains the functions to start and stop an Erlang gRPC server, as well  
+as the functions that can be used by the programmer who implements the services  
+that are provided by that server.</p>
+ 
+  See the Readme in the root folder of the repository for a more general (tutorial-style)
+  introduction.
+ 
+<h2><a name="types">Data Types</a></h2>
+
+<h3 class="typedecl"><a name="type-compression_method">compression_method()</a></h3>
+<p><tt>compression_method() = none | gzip</tt></p>
+
+
+<h3 class="typedecl"><a name="type-error_code">error_code()</a></h3>
+<p><tt>error_code() = integer()</tt></p>
+
+
+<h3 class="typedecl"><a name="type-error_message">error_message()</a></h3>
+<p><tt>error_message() = binary()</tt></p>
+
+
+<h3 class="typedecl"><a name="type-error_response">error_response()</a></h3>
+<p><tt>error_response() = {error, <a href="#type-error_code">error_code()</a>, <a href="#type-error_message">error_message()</a>, <a href="#type-stream">stream()</a>}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-metadata">metadata()</a></h3>
+<p><tt>metadata() = #{<a href="#type-metadata_key">metadata_key()</a> =&gt; <a href="#type-metadata_value">metadata_value()</a>}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-metadata_key">metadata_key()</a></h3>
+<p><tt>metadata_key() = binary()</tt></p>
+
+
+<h3 class="typedecl"><a name="type-metadata_value">metadata_value()</a></h3>
+<p><tt>metadata_value() = binary()</tt></p>
+
+
+<h3 class="typedecl"><a name="type-option">option()</a></h3>
+<p><tt>option() = {transport_options, [<a href="ranch_ssl.html#type-ssl_opt">ranch_ssl:ssl_opt()</a>]} | {num_acceptors, integer()} | {handler_state, term()}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-stream">stream()</a></h3>
+<p><b>abstract datatype</b>: <tt>stream()</tt></p>
+
+
+<h2><a name="index">Function Index</a></h2>
+<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#authority-1">authority/1</a></td><td>Get the value for the :authority header.</td></tr>
+<tr><td valign="top"><a href="#compile-1">compile/1</a></td><td>Equivalent to <a href="#compile-2"><tt>compile(FileName, [])</tt></a>.
+</td></tr>
+<tr><td valign="top"><a href="#compile-2">compile/2</a></td><td>Compile a .proto file to generate server  
+side skeleton code and a module to encode and decode the  
+protobuf messages.</td></tr>
+<tr><td valign="top"><a href="#metadata-1">metadata/1</a></td><td>Get the metadata that was sent by the client.</td></tr>
+<tr><td valign="top"><a href="#method-1">method/1</a></td><td>Get the value for the :method header.</td></tr>
+<tr><td valign="top"><a href="#path-1">path/1</a></td><td>Get the value for the :path header.</td></tr>
+<tr><td valign="top"><a href="#scheme-1">scheme/1</a></td><td>Get the value for the :scheme header.</td></tr>
+<tr><td valign="top"><a href="#send-2">send/2</a></td><td>Send one or more messages from the server to the client.</td></tr>
+<tr><td valign="top"><a href="#send_headers-1">send_headers/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#send_headers-2">send_headers/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#set_compression-2">set_compression/2</a></td><td>Enable compression of response messages.</td></tr>
+<tr><td valign="top"><a href="#set_headers-2">set_headers/2</a></td><td>Set metadata to be sent in headers.</td></tr>
+<tr><td valign="top"><a href="#set_trailers-2">set_trailers/2</a></td><td>Set metadata to be sent in trailers.</td></tr>
+<tr><td valign="top"><a href="#start_server-4">start_server/4</a></td><td>Equivalent to <a href="#start_server-5"><tt>start_server(Name, Transport, Port, Handler, [])</tt></a>.
+</td></tr>
+<tr><td valign="top"><a href="#start_server-5">start_server/5</a></td><td>Start a gRPC server.</td></tr>
+<tr><td valign="top"><a href="#stop_server-1">stop_server/1</a></td><td>Stop a gRPC server.</td></tr>
+</table>
+
+<h2><a name="functions">Function Details</a></h2>
+
+<h3 class="function"><a name="authority-1">authority/1</a></h3>
+<div class="spec">
+<p><tt>authority(Stream::<a href="#type-stream">stream()</a>) -&gt; binary()</tt><br></p>
+</div><p>Get the value for the :authority header.</p>
+
+<h3 class="function"><a name="compile-1">compile/1</a></h3>
+<div class="spec">
+<p><tt>compile(FileName::string()) -&gt; ok</tt><br></p>
+</div><p>Equivalent to <a href="#compile-2"><tt>compile(FileName, [])</tt></a>.</p>
+
+
+<h3 class="function"><a name="compile-2">compile/2</a></h3>
+<div class="spec">
+<p><tt>compile(FileName::string(), Options::<a href="gbp_compile.html#type-opts">gbp_compile:opts()</a>) -&gt; ok</tt><br></p>
+</div><p><p>Compile a .proto file to generate server  
+side skeleton code and a module to encode and decode the  
+protobuf messages.</p>
+ 
+  Refer to gbp for the options. gRPC will always use the options
+  'maps' (so that the protobuf messages are translated to and
+  from maps) and the option '{i, "."}' (so that .proto files in the
+  current working directory will be found).</p>
+
+<h3 class="function"><a name="metadata-1">metadata/1</a></h3>
+<div class="spec">
+<p><tt>metadata(Stream::<a href="#type-stream">stream()</a>) -&gt; <a href="#type-metadata">metadata()</a></tt><br></p>
+</div><p><p>Get the metadata that was sent by the client.</p>
+ 
+  Note that this will in fact provide all the headers (so not just the
+  metadata), except for :method, :authority, :scheme and :path (there are
+  separate functions to get access to those). But if there is for example a
+  grpc-timeout header this will also be returned as metadata.</p>
+
+<h3 class="function"><a name="method-1">method/1</a></h3>
+<div class="spec">
+<p><tt>method(Stream::<a href="#type-stream">stream()</a>) -&gt; binary()</tt><br></p>
+</div><p>Get the value for the :method header.</p>
+
+<h3 class="function"><a name="path-1">path/1</a></h3>
+<div class="spec">
+<p><tt>path(Stream::<a href="#type-stream">stream()</a>) -&gt; binary()</tt><br></p>
+</div><p>Get the value for the :path header.</p>
+
+<h3 class="function"><a name="scheme-1">scheme/1</a></h3>
+<div class="spec">
+<p><tt>scheme(Stream::<a href="#type-stream">stream()</a>) -&gt; binary()</tt><br></p>
+</div><p>Get the value for the :scheme header.</p>
+
+<h3 class="function"><a name="send-2">send/2</a></h3>
+<div class="spec">
+<p><tt>send(Stream::<a href="#type-stream">stream()</a>, MsgList::#{} | [#{}]) -&gt; <a href="#type-stream">stream()</a></tt><br></p>
+</div><p><p>Send one or more messages from the server to the client.</p>
+ 
+  This function can be used in the service implementation to send
+  one or more messages to the client via a stream.</p>
+
+<h3 class="function"><a name="send_headers-1">send_headers/1</a></h3>
+<div class="spec">
+<p><tt>send_headers(Stream::<a href="#type-stream">stream()</a>) -&gt; <a href="#type-stream">stream()</a></tt><br></p>
+</div>
+
+<h3 class="function"><a name="send_headers-2">send_headers/2</a></h3>
+<div class="spec">
+<p><tt>send_headers(Stream::<a href="#type-stream">stream()</a>, Headers::<a href="#type-metadata">metadata()</a>) -&gt; <a href="#type-stream">stream()</a></tt><br></p>
+</div>
+
+<h3 class="function"><a name="set_compression-2">set_compression/2</a></h3>
+<div class="spec">
+<p><tt>set_compression(Stream::<a href="#type-stream">stream()</a>, Method::<a href="#type-compression_method">compression_method()</a>) -&gt; <a href="#type-stream">stream()</a></tt><br></p>
+</div><p>Enable compression of response messages. Currently only gzip or
+  none (no compression, the default) are supported.</p>
+
+<h3 class="function"><a name="set_headers-2">set_headers/2</a></h3>
+<div class="spec">
+<p><tt>set_headers(Stream::<a href="#type-stream">stream()</a>, Headers::<a href="#type-metadata">metadata()</a>) -&gt; <a href="#type-stream">stream()</a></tt><br></p>
+</div><p><p>Set metadata to be sent in headers.  
+Fails if headers have already been sent.</p>
+ 
+  This function can be used in the service implementation to add
+  metadata to a stream. The metadata will be sent to the client (as HTTP/2 headers)
+  before the response message(s) is/are sent.</p>
+
+<h3 class="function"><a name="set_trailers-2">set_trailers/2</a></h3>
+<div class="spec">
+<p><tt>set_trailers(Stream::<a href="#type-stream">stream()</a>, Trailers::<a href="#type-metadata">metadata()</a>) -&gt; <a href="#type-stream">stream()</a></tt><br></p>
+</div><p><p>Set metadata to be sent in trailers.</p>
+ 
+  This function can be used in the service implementation to add
+  metadata to a stream. The metadata will be sent to the client (as HTTP/2 end headers)
+  after the response message(s) has/have been sent.</p>
+
+<h3 class="function"><a name="start_server-4">start_server/4</a></h3>
+<div class="spec">
+<p><tt>start_server(Name::term(), Transport::ssl | tcp, Port::integer(), Handler::module()) -&gt; {ok, CowboyListenerPid::pid()} | {error, any()}</tt><br></p>
+</div><p>Equivalent to <a href="#start_server-5"><tt>start_server(Name, Transport, Port, Handler, [])</tt></a>.</p>
+
+
+<h3 class="function"><a name="start_server-5">start_server/5</a></h3>
+<div class="spec">
+<p><tt>start_server(Name::term(), Transport::ssl | tcp, Port::integer(), Handler::module(), Options::[<a href="#type-option">option()</a>]) -&gt; {ok, CowboyListenerPid::pid()} | {error, any()}</tt><br></p>
+</div><p><p>Start a gRPC server.</p>
+ 
+  <p>The Name is used to identify this server in future calls, in particular when stopping  
+the server.</p>
+ 
+  The Handler module must export functions to provide the name of the
+  server and the module to encode and decode the messages, and a function
+  for each of the RPCs. Typically this module is generated from the
+  .proto file using grpc:compile/1. The generated module contains skeleton
+  functions for the RPCs, these must be extended with the actual implementation
+  of the service.</p>
+
+<h3 class="function"><a name="stop_server-1">stop_server/1</a></h3>
+<div class="spec">
+<p><tt>stop_server(Name::term()) -&gt; ok | {error, not_found}</tt><br></p>
+</div><p>Stop a gRPC server.</p>
+<hr>
+
+<div class="navbar"><a name="#navbar_bottom"></a><table width="100%" border="0" cellspacing="0" cellpadding="2" summary="navigation bar"><tr><td><a href="overview-summary.html" target="overviewFrame">Overview</a></td><td><a href="http://www.erlang.org/"><img src="erlang.png" align="right" border="0" alt="erlang logo"></a></td></tr></table></div>
+<p><i>Generated by EDoc, Jul 26 2017, 16:26:23.</i></p>
+</body>
+</html>

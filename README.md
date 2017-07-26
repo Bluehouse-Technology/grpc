@@ -4,6 +4,88 @@ An implementation of a gRPC server in Erlang.
 
 An implementation of the client side is alo available: [grpc_client](https://github.com/Bluehouse-Technology/grpc_client).
 
+## A quick "Hello world" example
+
+GRPC services are specified in a .PROTO file (helloworld.proto):
+
+```
+syntax = "proto3";
+
+package helloworld;
+
+// The greeting service definition.
+service Greeter {
+  // Sends a greeting
+  rpc SayHello (HelloRequest) returns (HelloReply) {}
+}
+
+// The request message containing the user's name.
+message HelloRequest {
+  string name = 1;
+}
+
+// The response message containing the greetings
+message HelloReply {
+  string message = 1;
+}
+```
+
+Compile this file (from the Erlang shell):
+```
+1> grpc:compile(
+```
+This creates two files: `helloworld.erl`  and `helloworld_server.erl`. The
+first file contains code to encode and decode the gRPC messages (in
+protocol buffer format). The second file contains type specifications for
+the messages and 'skeleton' for the RPC:
+
+```erlang
+-spec 'SayHello'(Message::'HelloRequest'(), Stream::grpc:stream(), State::any()) ->
+    {'HelloReply'(), grpc:stream()} | grpc:error_response().
+%% This is a unary RPC
+'SayHello'(_Message, Stream, _State) ->
+    {#{}, Stream}.
+```
+
+Some code must be added to the skeleton to make it work:
+
+```erlang
+'SayHello'(#{name := Name}, Stream, _State) ->
+    {#{message => "Hello, " ++ Name}, Stream}.
+```
+ 
+Now compile the modules and start the server:
+
+```erlang
+2> c(helloworld).
+3> c(helloworld_server).
+4> grpc:start_server(hello, tcp, 10000, helloworld_server, []).
+``` 
+
+To see if it actually works you will need a grpc client. These exist in
+many languages (see [grpc.io](https://grpc.io)), but here we will use the
+erlang client
+([grpc_client)[(https://github.com/Bluehouse-Technology/grpc_client)]:
+
+```erlang
+1> grpc_client:compile("helloworld.proto").
+2> c(helloworld).
+3> c(helloword_client).
+4> {ok, Connection} = grpc_client:connect(tcp, "localhost", 10000).
+4> helloworld_client:'SayHello'(Connection, #{name => "World"}, []).
+{ok,#{grpc_status => 0,
+      headers => #{<<":status">> => <<"200">>},
+      http_status => 200,
+      result => #{message => "Hello, world"},
+      status_message => <<>>,
+      trailers => #{<<"grpc-status">> => <<"0">>}}}
+```
+
+This is a rather trivial and unintereting example - see the
+[tutorial](/doc/tutorial.md) for more examples and further details, or the
+[reference documentation](/doc/index.html) for more details of the
+individual modules and functions.
+
 ## Build
 gRPC uses [erlang.mk](https://erlang.mk/) as build tool. On Unix systems it can be built
 with: 
@@ -34,9 +116,6 @@ tested against the go gRPC implementation.
   required to create some modules from the .proto files, but the modules
   are self contained and don't have a runtime depedency on gpb.
 
-## gRPC functionality
-
-[tutorial](/doc/tutorial.md)
 
 ## Acknowledgements
 
