@@ -77,7 +77,7 @@ erlang client
 {ok,#{grpc_status => 0,
       headers => #{<<":status">> => <<"200">>},
       http_status => 200,
-      result => #{message => "Hello, world"},
+      result => #{message => "Hello, World"},
       status_message => <<>>,
       trailers => #{<<"grpc-status">> => <<"0">>}}}
 ```
