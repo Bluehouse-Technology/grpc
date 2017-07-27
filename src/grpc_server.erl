@@ -30,7 +30,6 @@ start(Name, Transport, Port, Handler, Options) ->
     HandlerState = proplists:get_value(handler_state, Options),
     Decoder = Handler:decoder(),
     {module, _} = code:ensure_loaded(Decoder),
-    Acceptors = proplists:get_value(nr_acceptors, Options, 100),
     AuthFun = get_authfun(Transport, Options),
     %% All requests are dispatched to this same module (?MODULE),
     %% which means that `init/2` below will be called for each
@@ -43,14 +42,16 @@ start(Name, Transport, Port, Handler, Options) ->
                   handler => Handler,
                   decoder => Decoder}}]}]),
     ProtocolOpts = #{env => #{dispatch => Dispatch},
-                     http2_recv_timeout => infinity},
+                     %% inactivity_timeout => infinity,
+                     stream_handlers => [grpc_stream_handler,
+                                         cowboy_stream_h]},
     case Transport of
         tcp ->
-            cowboy:start_clear(Name, Acceptors, [{port, Port}], ProtocolOpts);
+            cowboy:start_clear(Name, [{port, Port}], ProtocolOpts);
         ssl ->
             TransportOpts = [{port, Port} |
                              proplists:get_value(transport_options, Options, [])],
-            cowboy:start_tls(Name, Acceptors, TransportOpts, ProtocolOpts)
+            cowboy:start_tls(Name, TransportOpts, ProtocolOpts)
     end.
 
 -spec stop(Name::term()) -> ok.

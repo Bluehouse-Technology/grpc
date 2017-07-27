@@ -79,6 +79,7 @@ groups() ->
         ,stop_stream
         ,run_routechat
         ,run_recordroute
+        ,flow_control
         ]},
      {metadata, [sequence],
         [compile_example_2
@@ -301,6 +302,37 @@ run_recordroute(Config) ->
     ok = grpc_client:send_last(Stream, P2),
     {headers,#{<<":status">> := <<"200">>}} = grpc_client:rcv(Stream, 500),
     {data, #{point_count := 2}} = grpc_client:rcv(Stream, 500).
+
+flow_control(Config) ->
+    %% use RouteChat to send some big messages to the server, to see if flow control is working.
+    {ok, Connection} = grpc_client:connect(tcp, "localhost", port(Config), [{http2_client, h2_client(Config)}]),
+    {ok, Stream} = grpc_client:new_stream(Connection, 'RouteGuide', 
+                                            'RouteChat', route_guide),
+    timer:sleep(500),
+    P1 = #{latitude => 1, longitude => 2}, 
+    ok = grpc_client:send(Stream, #{location => P1, 
+                                    message => "something about P1"}),
+    %% We need to send more than 65535 bytes, because that is the window size
+    send_10K_bytes(Stream, 8),
+    %% Now trigger a response message by sending something more about P1
+    ok = grpc_client:send(Stream, #{location => P1, 
+                                    message => "more about P1"}),
+    {headers,#{<<":status">> := <<"200">>}} = grpc_client:rcv(Stream, 500),
+    {data,#{location := #{latitude := 1,longitude := 2}, 
+            message := "something about P1"}} = grpc_client:rcv(Stream, 500).
+
+send_10K_bytes(Stream, N) ->
+    Message = lists:flatten(["0123456789" || _ <- lists:seq(1, 1000)]),
+    [send_big_message(Stream, Message, M) || M <- lists:seq(1, N)].
+
+%% The messages must be about different points, otherwise we start getting
+%% response messages (which we don't want).
+send_big_message(Stream, Message, N) ->
+    P = #{latitude => N, longitude => N},
+    ok = grpc_client:send(Stream, #{location => P, 
+                                    message => Message}),
+    %% allow the WINDOW_UPDATE message to arrive
+    timer:sleep(500).
 
 compile_example_2(_Config) ->
     compile_example("route_guide_server_2.erl").
