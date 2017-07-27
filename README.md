@@ -2,7 +2,7 @@
 
 An implementation of a gRPC server in Erlang. 
 
-An implementation of the client side is alo available: [grpc_client](https://github.com/Bluehouse-Technology/grpc_client).
+An implementation of the client side is also available: [grpc_client](https://github.com/Bluehouse-Technology/grpc_client).
 
 ## A quick "Hello world" example
 
@@ -38,7 +38,7 @@ Compile this file (from the Erlang shell):
 This creates two files: `helloworld.erl`  and `helloworld_server.erl`. The
 first file contains code to encode and decode the gRPC messages (in
 protocol buffer format). The second file contains type specifications for
-the messages and 'skeleton' for the RPC:
+the messages and a 'skeleton' for the RPC:
 
 ```erlang
 -spec 'SayHello'(Message::'HelloRequest'(), Stream::grpc:stream(), State::any()) ->
@@ -55,7 +55,7 @@ Some code must be added to the skeleton to make it work:
     {#{message => "Hello, " ++ Name}, Stream}.
 ```
  
-Now compile the modules and start the server:
+Now compile the modules and start the server (it will listen to port 10000):
 
 ```erlang
 2> c(helloworld).
@@ -82,9 +82,13 @@ erlang client
       trailers => #{<<"grpc-status">> => <<"0">>}}}
 ```
 
-This is a trivial and uninteresting example - see the
+There are many more things you can do - streaming from client to server,
+from server to client, both ways, adding metadata, compression,
+authentication ... - see the
 [tutorial](/doc/tutorial.md) for more examples and further details, or the
-[reference documentation](https://github.com/Bluehouse-Technology/grpc/wiki/gRPC-reference-documentation) for more details of the
+[reference
+documentation](https://github.com/Bluehouse-Technology/grpc/wiki/gRPC-reference-documentation)
+for the details of the
 individual modules and functions.
 
 ## Build
