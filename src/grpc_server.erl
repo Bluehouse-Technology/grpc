@@ -149,9 +149,6 @@ authenticated(#{cowboy_req := Req} = Stream, Options) ->
         get_function(Req, Options, Stream)
     of
         NewStream ->
-            %% TODO: determine how to deal with the body and decoding. 
-            %% At the very least it should be able to deal with chunks, but probably
-            %% the decoding (and encoding of the result) should be 'automatic'.
             read_frames(NewStream)
     catch
         _:_ -> throw({?GRPC_STATUS_UNIMPLEMENTED,

@@ -91,15 +91,21 @@ decoder() -> route_guide.
 -spec 'ListFeatures'(Message::'Rectangle'(), Stream::grpc:stream(), State::any()) ->
     {['Feature'()], grpc:stream()} | grpc:error_response().
 %% Headers determine how many messages are sent and their size.
+%% The "sleep" parameter is a workaround, to make sure that the
+%% window updates arrive before the trailer is sent, see 
+%% grpc_SUITE.erl.
 'ListFeatures'(_Message, Stream, _State) ->
     #{<<"nr_of_points">> := CountBin,
-      <<"size">> := SizeBin} = grpc:metadata(Stream),
+      <<"size">> := SizeBin,
+      <<"sleep">> := SleepBin} = grpc:metadata(Stream),
     Count = binary_to_integer(CountBin),
+    Sleep = binary_to_integer(SleepBin),
     Name = [$a || _ <- lists:seq(1, binary_to_integer(SizeBin))],
-    Stream2 = lists:foldl(fun (_, S) ->
+    Stream2 = lists:foldl(fun (C, S) ->
+                              timer:sleep(Sleep),
                               grpc:send(S,
                                         #{name => Name,
-                                          location => #{latitude => 4,
+                                          location => #{latitude => C,
                                                         longitude => 5}})
                           end, Stream, lists:seq(1, Count - 1)),
     Stream3 = grpc:set_trailers(Stream2, #{<<"nr_of_points_sent">> => CountBin}),

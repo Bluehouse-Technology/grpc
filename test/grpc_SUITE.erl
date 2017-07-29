@@ -410,11 +410,19 @@ error_response(Config) ->
                 ?BVM_TRAIL_POINT,
                 [{metadata, #{<<"password">> => <<"sekret">>}}]).
 
+%% NOTE: this test may fail, depending on the order of events.
+%% There will be a window update from the client to the server because of this 
+%% test. If this arrives "late", the server wil start buffering messages. It will 
+%% NOT buffer the final headers, so these may arrive at the client before some of the 
+%% data messages.
 receive_many_messages(Config) ->
     {ok, Connection} = grpc_client:connect(tcp, "localhost", port(Config), [{http2_client, h2_client(Config)}]),
-    Count = 30,
-    Size = 3000,
+    Count = 35,
+    Size = 10000,
+    Sleep = 10, %% time for the server to wait between sending messages. If this is 
+                %% too small, the test may fail due to the problem described above.
     Options = [{metadata, #{<<"nr_of_points">> => integer_to_binary(Count),
+                            <<"sleep">> => integer_to_binary(Sleep),
                             <<"size">> => integer_to_binary(Size)}}],
     {ok, Stream} = grpc_client:new_stream(Connection, 'RouteGuide', 
                                           'ListFeatures', route_guide, Options),
@@ -423,12 +431,14 @@ receive_many_messages(Config) ->
     ok = grpc_client:send_last(Stream, #{hi => P1, lo => P2}),
     %% A little bit of time will pass before the response arrives...
     timer:sleep(500),
-    {headers, _} = grpc_client:get(Stream),
-    lists:foreach(fun (_) ->
-                      {data, _} = grpc_client:get(Stream)
+    {headers, _} = grpc_client:rcv(Stream, 100),
+    %% Results = [grpc_client:get(Stream) || _ <- lists:seq(1, Count + 2)],
+    lists:foreach(fun (_C) ->
+                      {data, _} = grpc_client:rcv(Stream, 100)
                   end, lists:seq(1, Count)),
-    {headers, _} = grpc_client:get(Stream),
+    {headers, _} = grpc_client:rcv(Stream, 100),
     eof = grpc_client:get(Stream).
+
 
 start_server_secure(Config) ->
     %% This will allow the client to use SSL and to ensure that it is indeed talking to 
