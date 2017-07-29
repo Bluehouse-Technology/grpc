@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package statistics;
+
+service get_stats {
+  rpc get_stats(type_parameter) returns (stats) {}
+}
+
+message type_parameter {
+  enum stats_type {
+    microstate_accounting = 0;
+  }
+  stats_type type_field = 1;
+}
+
+message stats {
+  repeated thread threads = 1;
+}
+
+message thread {
+  enum thread_type {
+    async = 0;
+    scheduler = 1;
+    aux = 2;
+  }
+  counter_stat counters = 1;
+  int32 id = 2;
+  thread_type type = 3;
+}
+
+message counter_stat {
+  int32 aux = 1;
+  int32 check_io = 2;
+  int32 emulator = 3;
+  int32 other = 4;
+  int32 port = 5;
+  int32 sleep = 6;
+}
