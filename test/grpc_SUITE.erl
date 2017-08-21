@@ -419,7 +419,7 @@ receive_many_messages(Config) ->
     {ok, Connection} = grpc_client:connect(tcp, "localhost", port(Config), [{http2_client, h2_client(Config)}]),
     Count = 35,
     Size = 10000,
-    Sleep = 10, %% time for the server to wait between sending messages. If this is 
+    Sleep = 0, %% time for the server to wait between sending messages. If this is 
                 %% too small, the test may fail due to the problem described above.
     Options = [{metadata, #{<<"nr_of_points">> => integer_to_binary(Count),
                             <<"sleep">> => integer_to_binary(Sleep),
@@ -430,8 +430,7 @@ receive_many_messages(Config) ->
     P2 = #{latitude => 3, longitude => 5},
     ok = grpc_client:send_last(Stream, #{hi => P1, lo => P2}),
     %% A little bit of time will pass before the response arrives...
-    timer:sleep(500),
-    {headers, _} = grpc_client:rcv(Stream, 100),
+    {headers, _} = grpc_client:rcv(Stream, 500),
     %% Results = [grpc_client:get(Stream) || _ <- lists:seq(1, Count + 2)],
     lists:foreach(fun (_C) ->
                       {data, _} = grpc_client:rcv(Stream, 100)
