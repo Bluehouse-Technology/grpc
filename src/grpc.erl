@@ -24,7 +24,7 @@
 
 -type option() :: {transport_options, [ranch_ssl:ssl_opt()]} |
                   {num_acceptors, integer()} |
-                  {handler_state, term()} .
+                  {handler_state, handler_state()} .
 -type metadata_key() :: binary().
 -type metadata_value() :: binary().
 -type metadata() :: #{metadata_key() => metadata_value()}.
@@ -32,6 +32,11 @@
 -type error_code() :: integer().
 -type error_message() :: binary().
 -type error_response() :: {error, error_code(), error_message(), stream()}.
+-type handler_state() :: any().
+%% This term is passed to the handler module. It will show up as the value of the 
+%% 'State' parameter that is passed to the first invocation (per stream) of the
+%% generated RPC skeleton functions. The default value is undefined. See the implementation
+%% of 'RecordRoute' in the tutorial for an example.
 -opaque stream() :: map().
 
 -export_type([option/0,

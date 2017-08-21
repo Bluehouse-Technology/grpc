@@ -82,7 +82,9 @@ erlang client
       trailers => #{<<"grpc-status">> => <<"0">>}}}
 ```
 
-There are many more things you can do - streaming from client to server,
+## Documentation 
+There are many more things you can do beyond what is shown in the simple
+example above - streaming from client to server,
 from server to client, both ways, adding metadata, compression,
 authentication ... - see the
 [tutorial](/doc/tutorial.md) for more examples and further details, or the
@@ -114,7 +116,8 @@ tested against the go gRPC implementation.
 ## Dependencies
 
 - [cowboy](https://github.com/willemdj/cowboy) is used for the server.
-  This is a fork with some changes to the support for HTTP/2.
+  This is a fork with some additional HTTP/2, most notably support for
+  trailers.
 
 - [gpb](https://github.com/tomas-abrahamsson/gpb) is used to encode and
   decode the protobuf messages. This is a 'build' dependency: gpb is
