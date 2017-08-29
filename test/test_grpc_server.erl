@@ -11,7 +11,7 @@
 %% $> make shell
 %% 1> cd(test).
 %% 2> c(test_grpc_server).
-%% 3> test_grpc_server(http).
+%% 3> test_grpc_server:run(tcp).
 %%
 %% Run the go client:
 %%
@@ -19,7 +19,7 @@
 %%
 %% To test with ssl:
 %%
-%% 4> test_grpc_server(tls).
+%% 4> test_grpc_server:run(ssl).
 %%
 %% Tun the go client with ssl:
 %% $> $GO_BIN/client -tls -ca_file $GRPC_ROOT/test/certificates/My_Root_CA.crt -server_host_override localhost
@@ -33,7 +33,9 @@ run(How) ->
     compile(),
     {ok, _} = compile:file(filename:join(test_dir(),
                                          "test_route_guide_server.erl")),
-    {ok, _} = grpc:start_server(grpc, How, 10000, test_route_guide_server, options(How)). 
+    {ok, _} = grpc:start_server(grpc, How, 10000,
+                                #{'RouteGuide' => #{handler => test_route_guide_server}}, 
+                                options(How)). 
 
 stop() ->
     grpc:stop_server(grpc).

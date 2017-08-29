@@ -21,15 +21,11 @@
 -spec start(Name::term(),
             Transport::tcp|ssl,
             Port::integer(),
-            Handler::module(),
+            Services::grpc:services(),
             Options::[grpc:server_option()]) ->
     {ok, CowboyListenerPid::pid()} | {error, any()}.
-start(Name, Transport, Port, Handler, Options) ->
+start(Name, Transport, Port, Services, Options) ->
     {ok, _Started} = application:ensure_all_started(grpc),
-    {module, _} = code:ensure_loaded(Handler),
-    HandlerState = proplists:get_value(handler_state, Options),
-    Decoder = Handler:decoder(),
-    {module, _} = code:ensure_loaded(Decoder),
     AuthFun = get_authfun(Transport, Options),
     %% All requests are dispatched to this same module (?MODULE),
     %% which means that `init/2` below will be called for each
@@ -37,10 +33,8 @@ start(Name, Transport, Port, Handler, Options) ->
     Dispatch = cowboy_router:compile([
 	{'_', [{"/:service/:method", 
                 ?MODULE, 
-                #{handler_state => HandlerState,
-                  auth_fun => AuthFun,
-                  handler => Handler,
-                  decoder => Decoder}}]}]),
+                #{auth_fun => AuthFun,
+                  services => Services}}]}]),
     ProtocolOpts = #{env => #{dispatch => Dispatch},
                      %% inactivity_timeout => infinity,
                      stream_handlers => [grpc_stream_handler,
@@ -151,20 +145,24 @@ authenticated(#{cowboy_req := Req} = Stream, Options) ->
         NewStream ->
             read_frames(NewStream)
     catch
-        _:_ -> throw({?GRPC_STATUS_UNIMPLEMENTED,
-                      <<"Operation not implemented">>})
+        _:_ -> 
+            throw({?GRPC_STATUS_UNIMPLEMENTED,
+                  <<"Operation not implemented">>})
     end.
 
-get_function(Req, #{handler := HandlerModule,
-                    decoder := DecoderModule,
-                    handler_state := HandlerState} = _Options, Stream) ->
+get_function(Req, #{services := Services} = _Options, Stream) ->
     QualifiedService = cowboy_req:binding(service, Req), 
-    Rpc = binary_to_existing_atom(cowboy_req:binding(method, Req)),
     Service = binary_to_existing_atom(lists:last(binary:split(QualifiedService, 
                                                               <<".">>, [global]))),
+    #{Service := #{handler := Handler} = Spec} = Services,
+    {module, _} = code:ensure_loaded(Handler),
+    HandlerState = maps:get(handler_state, Spec, undefined),
+    DecoderModule = maps:get(decoder, Spec, Handler:decoder()),
+    {module, _} = code:ensure_loaded(DecoderModule),
+    Rpc = binary_to_existing_atom(cowboy_req:binding(method, Req)),
     Stream#{decoder => DecoderModule,
             service => Service,
-            handler => HandlerModule,
+            handler => Handler,
             handler_state => HandlerState,
             rpc => Rpc}.
 

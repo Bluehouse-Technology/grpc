@@ -81,6 +81,11 @@ groups() ->
         ,run_recordroute
         ,flow_control
         ]},
+     {more_services, [sequence],
+        [compile_hello_world
+        ,start_server_4
+        ,run_getfeature
+        ,run_bonjour]},
      {metadata, [sequence],
         [compile_example_2
         ,start_server_2
@@ -134,6 +139,7 @@ init_per_group(Group, Config) ->
 end_per_group(Group, _Config) 
   when Group == tutorial;
        Group == metadata;
+       Group == more_services;
        Group == h2_client;
        Group == security;
        Group == compressed;
@@ -153,6 +159,7 @@ end_per_group(_, _Config) ->
 all() -> 
     [
      {group, tutorial},
+     {group, more_services},
      {group, metadata},
      {group, h2_client},
      {group, compressed},
@@ -195,7 +202,8 @@ compile_routeguide_example(_Config) ->
 start_routeguide_server(Config) ->
     Port = port(Config),
     Server = server(Config),
-    {ok, _} = grpc:start_server(Server, tcp, Port, route_guide_server_1, []). 
+    Spec = #{'RouteGuide' => #{handler => route_guide_server_1}},
+    {ok, _} = grpc:start_server(Server, tcp, Port, Spec, []). 
 
 run_getfeature(Config) ->
     Port = port(Config),
@@ -203,6 +211,15 @@ run_getfeature(Config) ->
                                            [{http2_client, h2_client(Config)}]),
     {ok, #{result := #{name := ?BVM_TRAIL}}} = feature(Connection,
                                                        ?BVM_TRAIL_POINT).
+
+run_bonjour(Config) ->
+    Port = port(Config),
+    {ok, Connection} = grpc_client:connect(tcp, "localhost", Port,
+                                           [{http2_client, h2_client(Config)}]),
+    {ok, #{result := #{message := "Bonjour, World"}}} = 
+        grpc_client:unary(Connection, #{name => "World"}, 'Greeter', 
+                          'SayHello', helloworld, []).
+
 getfeature_client(Config) ->
     Port = port(Config),
     {ok, Connection} = grpc_client:connect(tcp, "localhost", Port, [{http2_client, h2_client(Config)}]),
@@ -334,6 +351,13 @@ send_big_message(Stream, Message, N) ->
     %% allow the WINDOW_UPDATE message to arrive
     timer:sleep(500).
 
+compile_hello_world(_Config) ->
+    ExampleDir = filename:join(code:lib_dir(grpc, examples), "helloworld"),
+    Server = filename:join([ExampleDir, "helloworld_server.erl"]),
+    {ok, _} = compile:file(Server),
+    ok = grpc:compile("helloworld.proto", [{i, ExampleDir}]),
+    {ok, _} = compile:file("helloworld.erl").
+
 compile_example_2(_Config) ->
     compile_example("route_guide_server_2.erl").
 
@@ -342,11 +366,20 @@ compile_example_3(_Config) ->
 
 start_server_2(Config) ->
     Server = server(Config),
-    {ok, _} = grpc:start_server(Server, tcp, port(Config), route_guide_server_2, []). 
+    Spec = #{'RouteGuide' => #{handler => route_guide_server_2}},
+    {ok, _} = grpc:start_server(Server, tcp, port(Config), Spec, []). 
 
 start_server_3(Config) ->
     Server = server(Config),
-    {ok, _} = grpc:start_server(Server, tcp, port(Config), route_guide_server_3, []). 
+    Spec = #{'RouteGuide' => #{handler => route_guide_server_3}},
+    {ok, _} = grpc:start_server(Server, tcp, port(Config), Spec, []). 
+
+start_server_4(Config) ->
+    Server = server(Config),
+    Spec = #{'RouteGuide' => #{handler => route_guide_server_1},
+             'Greeter' => #{handler => helloworld_server,
+                            handler_state => "Bonjour, "}},
+    {ok, _} = grpc:start_server(Server, tcp, port(Config), Spec, []). 
 
 metadata_from_client(Config) ->
     {ok, Connection} = grpc_client:connect(tcp, "localhost", port(Config),
@@ -446,7 +479,8 @@ start_server_secure(Config) ->
     SslOptions = [{certfile, certificate("localhost.crt")},
                   {keyfile, certificate("localhost.key")},
                   {cacertfile, certificate("My_Root_CA.crt")}],
-    {ok, _} = grpc:start_server(Server, ssl, port(Config), route_guide_server_1, 
+    Spec = #{'RouteGuide' => #{handler => route_guide_server_1}},
+    {ok, _} = grpc:start_server(Server, ssl, port(Config), Spec,
                                 [{transport_options, SslOptions}]). 
 
 secure_request(Config) ->
@@ -474,7 +508,8 @@ start_server_wrong_certificate(Config) ->
     TlsOptions = [{certfile, certificate("mydomain.com.crt")},
                   {keyfile, certificate("mydomain.com.key")},
                   {cacertfile, certificate("My_Root_CA.crt")}],
-    {ok, _} = grpc:start_server(Server, ssl, port(Config), route_guide_server_1, 
+    Spec = #{'RouteGuide' => #{handler => route_guide_server_1}},
+    {ok, _} = grpc:start_server(Server, ssl, port(Config), Spec,
                                 [{transport_options, TlsOptions}]). 
 
 ssl_without_server_identification(Config) ->
@@ -501,7 +536,8 @@ start_server_authenticating(Config) ->
                   {cacertfile, certificate("My_Root_CA.crt")},
                   {fail_if_no_peer_cert, true},
                   {verify, verify_peer}],
-    {ok, _} = grpc:start_server(Server, ssl, port(Config), route_guide_server_1, 
+    Spec = #{'RouteGuide' => #{handler => route_guide_server_1}},
+    {ok, _} = grpc:start_server(Server, ssl, port(Config), Spec,
                                 [{client_cert_dir, client_cert_dir()},
                                  {http2_client, h2_client(Config)},
                                  {transport_options, TlsOptions}]). 
@@ -535,6 +571,7 @@ compile_example(File) ->
                                 "route_guide",
                                 "server"]),
     {ok, _} = compile:file(filename:join(ExampleDir, File)).
+
 
 feature(Connection, Message) ->
     feature(Connection, Message, []).

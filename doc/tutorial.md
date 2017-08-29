@@ -369,17 +369,17 @@ end, we send a 2-tuple `{[Value], Stream}`.
 Once we've implemented all our methods, we also need to start up a gRPC server
 so that clients can actually use our service. The following snippet shows how we
 do this for our `RouteGuide` service. Note that it will only work if both
-the `route_guide_server` module and the generated encoder/decoder module
+the `route_guide_server_1` module and the generated encoder/decoder module
 `route_guide` are on the code path.
 
 ```erlang
-5> {ok, Server} = grpc:start_server(grpc, tcp, 10000, route_guide_server_1).
+5> {ok, Server} = grpc:start_server(grpc, tcp, 10000, #{'RouteGuide' => #{handler => route_guide_server_1}}).
 ```
 
 The first argument is the name of the server (strictly speaking: the Cowboy
 listener). It can be any term. The second argument specifies the transport
 layer. It can be `tcp` or `ssl`. The third argument specifies the port and
-the fourth argument is the handler module. As an optional fifth argument
+the fourth argument links the gRPC service to our handler module. As an optional fifth argument
 some options can be provided, for example to enable compression or
 authentication, details about that are provided in separate sections below.
 
@@ -631,7 +631,8 @@ be correct. The example certificates can be found in
 test/certificates.
 
 ```erlang
-grpc:start_server(grpc, ssl, 10000, route_guide_server_1, 
+grpc:start_server(grpc, ssl, 10000,
+    #{'RouteGuide' => #{handler => route_guide_server_1}}, 
     [{transport_options, [{certfile, "certificates/localhost.crt"},
                           {keyfile, "certificates/localhost.key"},
                           {cacertfile, "certificates/My_Root_CA.crt"}]}]).
@@ -674,7 +675,8 @@ certificates are, and we must pass a few extra transport_options to ensure that
 the authentication is enforced. So the server will be started like this:
 
 ```erlang
-grpc:start_server(grpc, ssl, 10000, route_guide_server_1, 
+grpc:start_server(grpc, ssl, 10000,
+    #{'RouteGuide' => #{handler => route_guide_server_1}}, 
     [{client_cert_dir, "certificates"},
      {transport_options, [{certfile, "certificates/localhost.crt"},
                           {keyfile, "certificates/localhost.key"},

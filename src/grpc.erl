@@ -22,9 +22,26 @@
          authority/1, scheme/1, method/1, path/1, 
          set_compression/2]).
 
+
+-type service_spec() :: #{handler := module(),
+                          decoder => module(),
+                          handler_state => handler_state()}.
+%% The 'handler' module must export a function for each of the RPCs. Typically
+%% this module is generated from the .proto file using grpc:compile/1. The
+%% generated module contains skeleton functions for the RPCs, these must be
+%% extended with the actual implementation of the service. 
+%%
+%% Optionally a start state ('handler_state') can be specified.
+%%
+%% The 'decoder' is also optional: by default the result of the 'decoder/0'
+%% function in the handler module will be used.
+
+-type services() :: #{ServiceName :: atom() := service_spec()}.
+%% Links each gRPC service to a 'service_spec()'. The 'service_spec()' contains 
+%% the information that the server needs to execute the service.
+
 -type option() :: {transport_options, [ranch_ssl:ssl_opt()]} |
-                  {num_acceptors, integer()} |
-                  {handler_state, handler_state()} .
+                  {num_acceptors, integer()}.
 -type metadata_key() :: binary().
 -type metadata_value() :: binary().
 -type metadata() :: #{metadata_key() => metadata_value()}.
@@ -33,13 +50,14 @@
 -type error_message() :: binary().
 -type error_response() :: {error, error_code(), error_message(), stream()}.
 -type handler_state() :: any().
-%% This term is passed to the handler module. It will show up as the value of the 
-%% 'State' parameter that is passed to the first invocation (per stream) of the
-%% generated RPC skeleton functions. The default value is undefined. See the implementation
-%% of 'RecordRoute' in the tutorial for an example.
+%% This term is passed to the handler module. It will show up as the value of
+%% the 'State' parameter that is passed to the first invocation (per stream) of
+%% the generated RPC skeleton functions. The default value is 'undefined'. See
+%% the implementation of 'RecordRoute' in the tutorial for an example.
 -opaque stream() :: map().
 
 -export_type([option/0,
+              services/0,
               error_response/0,
               compression_method/0,
               stream/0,
@@ -66,16 +84,16 @@ compile(FileName, Options) ->
 -spec start_server(Name::term(), 
                    Transport::ssl|tcp,
                    Port::integer(),
-                   Handler::module()) -> {ok, CowboyListenerPid::pid()} |
-                                         {error, any()}.
-%% @equiv start_server(Name, Transport, Port, Handler, [])
-start_server(Name, Transport, Port, Handler) when is_atom(Handler) ->
-    start_server(Name, Transport, Port, Handler, []).
+                   Services::services()) -> {ok, CowboyListenerPid::pid()} |
+                                            {error, any()}.
+%% @equiv start_server(Name, Transport, Port, Services, [])
+start_server(Name, Transport, Port, Services) when is_map(Services) ->
+    start_server(Name, Transport, Port, Services, []).
 
 -spec start_server(Name::term(),
                    Transport::ssl|tcp,
                    Port::integer(),
-                   Handler::module(), 
+                   Services::services(), 
                    Options::[option()]) -> 
   {ok, CowboyListenerPid::pid()} | {error, any()}.
 %% @doc Start a gRPC server. 
@@ -83,15 +101,11 @@ start_server(Name, Transport, Port, Handler) when is_atom(Handler) ->
 %% The Name is used to identify this server in future calls, in particular when stopping
 %% the server.
 %%
-%% The Handler module must export functions to provide the name of the 
-%% server and the module to encode and decode the messages, and a function
-%% for each of the RPCs. Typically this module is generated from the 
-%% .proto file using grpc:compile/1. The generated module contains skeleton
-%% functions for the RPCs, these must be extended with the actual implementation
-%% of the service. 
-start_server(Name, Transport, Port, Handler, Options) when is_atom(Handler),
+%% 'Services' is a map that links each gRPC service to the module that implements
+%% it (with some optional additional information).
+start_server(Name, Transport, Port, Services, Options) when is_map(Services),
                                                            is_list(Options) ->
-    grpc_server:start(Name, Transport, Port, Handler, Options).
+    grpc_server:start(Name, Transport, Port, Services, Options).
 
 -spec stop_server(Name::term()) -> ok | {error, not_found}.
 %% @doc Stop a gRPC server. 
