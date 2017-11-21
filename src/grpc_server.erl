@@ -147,11 +147,11 @@ get_authfun(_, _) ->
     undefined.
 
 authenticate(Req, #{auth_fun := AuthFun}) when is_function(AuthFun) ->
-    case cowboy_req:peercert(Req) of
-        {ok, Cert} ->
-            AuthFun(Cert);
-        {error, no_peercert} ->
-            false
+    case cowboy_req:cert(Req) of
+        undefined ->
+            false;
+        Cert when is_binary(Cert) ->
+            AuthFun(Cert)
     end;
 authenticate(_Req, _Options) ->
     {true, undefined}.

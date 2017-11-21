@@ -115,9 +115,7 @@ tested against the go gRPC implementation.
 
 ## Dependencies
 
-- [cowboy](https://github.com/willemdj/cowboy) is used for the server.
-  This is a fork with some additional HTTP/2, most notably support for
-  trailers.
+- [cowboy](https://github.com/ninenines/cowboy) is used for the server.
 
 - [gpb](https://github.com/tomas-abrahamsson/gpb) is used to encode and
   decode the protobuf messages. This is a 'build' dependency: gpb is

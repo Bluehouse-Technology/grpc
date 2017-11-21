@@ -72,7 +72,8 @@ data(StreamID, IsFin, Data, State0=#state{bytes_received = Received,
     -> {cowboy_stream:commands(), State} when State::#state{}.
 info(StreamID, Info, State0=#state{next=Next0}) ->
     {Commands0, Next} = cowboy_stream:info(StreamID, Info, Next0),
-    {Commands0, State0#state{next=Next}}.
+    Commands = remove_date_and_server(Commands0),
+    {Commands, State0#state{next=Next}}.
 
 -spec terminate(cowboy_stream:streamid(), cowboy_stream:reason(), #state{}) -> any().
 terminate(StreamID, Reason, #state{next=Next}) ->
@@ -83,3 +84,17 @@ terminate(StreamID, Reason, #state{next=Next}) ->
     when Resp::cowboy_stream:resp_command().
 early_error(StreamID, Reason, PartialReq, Resp, Opts) ->
     cowboy_stream:early_error(StreamID, Reason, PartialReq, Resp, Opts).
+
+
+%%-----------------------------------------------------------------------------
+%% Internal functions
+%%-----------------------------------------------------------------------------
+
+%% cowboy adds headers for "date" and "server", these must be removed.
+remove_date_and_server(Commands) ->
+    F = fun({headers, Status, Headers}) ->
+                {headers, Status, maps:without([<<"date">>, <<"server">>], Headers)};
+           (Other) ->
+                Other
+        end,
+    [F(C) || C <- Commands].

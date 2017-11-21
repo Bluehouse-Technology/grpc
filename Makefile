@@ -6,7 +6,8 @@ PROJECT_VERSION = 0.1.0
 SP = 4
 
 DEPS = cowboy grpc_lib
-dep_cowboy = git https://github.com/willemdj/cowboy
+# Use the cowboy version that has support for trailers.
+dep_cowboy_commit = master
 dep_grpc_lib = git https://github.com/Bluehouse-Technology/grpc_lib
 
 TEST_DEPS = grpc_client
