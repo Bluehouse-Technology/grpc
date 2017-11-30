@@ -813,7 +813,7 @@ metadata can be added using `grpc:set_headers/2` or `grpc:set_trailers/2`.
 
 ## Server Middleware
 
-You can implement middleware as described in https://ninenines.eu/docs/en/cowboy/1.0/guide/middlewares/. The list of middlewares in order of execution will then need to be specified in the `middlewares` option when starting the server. The list must include `cowboy_router` and `cowboy_handler`.
+You can implement middleware as described in https://ninenines.eu/docs/en/cowboy/1.0/guide/middlewares/. The list of middlewares will need to be specified in order of execution in the `middlewares` option when starting the server. The list must include `cowboy_router` and `cowboy_handler`.
 
 TODO: 
 -  Timeout.

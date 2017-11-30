@@ -151,7 +151,7 @@ get_authfun(_, _) ->
 get_middlewares(Options) ->
     case proplists:get_value(middlewares, Options) of
         undefined ->
-            %% defaulting to default cowboy middlewares
+            %% default cowboy middlewares
             [cowboy_router, cowboy_handler];
         Middlewares ->
             Middlewares
