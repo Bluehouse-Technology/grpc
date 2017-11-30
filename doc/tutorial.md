@@ -811,7 +811,12 @@ On the server side, a message that is sent to the client can be compressed
 by applying `grpc:set_compression/2` on the stream, similar to the way
 metadata can be added using `grpc:set_headers/2` or `grpc:set_trailers/2`.
 
+## Server Middleware
+
+You can implement middleware as described in https://ninenines.eu/docs/en/cowboy/2.0/guide/middlewares/. The list of middlewares will need to be specified in order of execution in the `middlewares` option when starting the server. The list must include `cowboy_router` and `cowboy_handler`.
+
 TODO: 
 -  Timeout.
 -  Description and improvement of the actual implementation of error
    handling.
+-  Client side middleware support

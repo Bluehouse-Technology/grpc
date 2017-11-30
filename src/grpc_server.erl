@@ -46,6 +46,7 @@
 start(Name, Transport, Port, Services, Options) ->
     {ok, _Started} = application:ensure_all_started(grpc),
     AuthFun = get_authfun(Transport, Options),
+    Middlewares = get_middlewares(Options),
     %% All requests are dispatched to this same module (?MODULE),
     %% which means that `init/2` below will be called for each
     %% request.
@@ -57,7 +58,8 @@ start(Name, Transport, Port, Services, Options) ->
     ProtocolOpts = #{env => #{dispatch => Dispatch},
                      %% inactivity_timeout => infinity,
                      stream_handlers => [grpc_stream_handler,
-                                         cowboy_stream_h]},
+                                         cowboy_stream_h],
+                     middlewares => Middlewares},
     case Transport of
         tcp ->
             cowboy:start_clear(Name, [{port, Port}], ProtocolOpts);
@@ -145,6 +147,15 @@ get_authfun(ssl, Options) ->
     end;
 get_authfun(_, _) ->
     undefined.
+
+get_middlewares(Options) ->
+    case proplists:get_value(middlewares, Options) of
+        undefined ->
+            %% default cowboy middlewares
+            [cowboy_router, cowboy_handler];
+        Middlewares ->
+            Middlewares
+    end.
 
 authenticate(Req, #{auth_fun := AuthFun}) when is_function(AuthFun) ->
     case cowboy_req:cert(Req) of
