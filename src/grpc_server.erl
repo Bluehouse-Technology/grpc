@@ -111,7 +111,7 @@ make_stream(#{headers := Headers,
                 encoding => plain,
                 compression => none, %% compression of the response messages
                 start_time => erlang:system_time(1),
-                content_type => undefined,
+                content_type => <<"application/grpc">>,
                 user_agent => undefined,
                 timeout => infinity}, Headers).
 
