@@ -95,7 +95,7 @@ make_stream(#{headers := Headers,
               scheme := Scheme,
               path := Path,
               method := Method} = Req) ->
-    maps:fold(fun process_header/3, 
+    Processed = maps:fold(fun process_header/3, 
               #{cowboy_req => Req,
                 authority => Authority,
                 scheme => Scheme,
@@ -111,9 +111,13 @@ make_stream(#{headers := Headers,
                 encoding => plain,
                 compression => none, %% compression of the response messages
                 start_time => erlang:system_time(1),
-                content_type => <<"application/grpc">>,
+                content_type => undefined,
                 user_agent => undefined,
-                timeout => infinity}, Headers).
+                timeout => infinity}, Headers),
+    maps:update_with(
+        headers, 
+        fun(Hdrs) -> maps:put(<<"content-type">>,maps:get(content_type, Processed), Hdrs) end, 
+        Processed).
 
 process_header(<<"grpc-timeout">>, Value, Acc) ->
     Acc#{timeout => Value};
