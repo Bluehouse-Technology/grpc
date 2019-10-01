@@ -66,7 +66,7 @@ start(Name, Transport, Port, Services, Options) ->
                      stream_handlers => [grpc_stream_handler,
                                          cowboy_stream_h],
                      middlewares => Middlewares},
-    io:fwrite("Sending protocol options: ~p.~n", [ProtocolOpts]),
+    %io:fwrite("Sending protocol options: ~p.~n", [ProtocolOpts]),
     case Transport of
         tcp ->
             cowboy:start_clear(Name, [{port, Port}], ProtocolOpts);
