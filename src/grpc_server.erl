@@ -56,10 +56,17 @@ start(Name, Transport, Port, Services, Options) ->
                 #{auth_fun => AuthFun,
                   services => Services}}]}]),
     ProtocolOpts = #{env => #{dispatch => Dispatch},
-                     %% inactivity_timeout => infinity,
+                     inactivity_timeout => infinity,
+                     idle_timeout => infinity,
+                     preface_timeout => infinity,
+                     settings_timeout => infinity,
+                     shutdown_timeout => infinity,
+                     linger_timeout => infinity,
+                     request_timeout => infinity,
                      stream_handlers => [grpc_stream_handler,
                                          cowboy_stream_h],
                      middlewares => Middlewares},
+    io:fwrite("Sending protocol options: ~p.~n", [ProtocolOpts]),
     case Transport of
         tcp ->
             cowboy:start_clear(Name, [{port, Port}], ProtocolOpts);
