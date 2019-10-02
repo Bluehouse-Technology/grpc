@@ -56,10 +56,17 @@ start(Name, Transport, Port, Services, Options) ->
                 #{auth_fun => AuthFun,
                   services => Services}}]}]),
     ProtocolOpts = #{env => #{dispatch => Dispatch},
-                     %% inactivity_timeout => infinity,
+                     inactivity_timeout => infinity,
+                     idle_timeout => infinity,
+                     preface_timeout => infinity,
+                     settings_timeout => infinity,
+                     shutdown_timeout => infinity,
+                     linger_timeout => infinity,
+                     request_timeout => infinity,
                      stream_handlers => [grpc_stream_handler,
                                          cowboy_stream_h],
                      middlewares => Middlewares},
+    %io:fwrite("Sending protocol options: ~p.~n", [ProtocolOpts]),
     case Transport of
         tcp ->
             cowboy:start_clear(Name, [{port, Port}], ProtocolOpts);
@@ -95,7 +102,7 @@ make_stream(#{headers := Headers,
               scheme := Scheme,
               path := Path,
               method := Method} = Req) ->
-    maps:fold(fun process_header/3, 
+    Processed = maps:fold(fun process_header/3, 
               #{cowboy_req => Req,
                 authority => Authority,
                 scheme => Scheme,
@@ -113,7 +120,11 @@ make_stream(#{headers := Headers,
                 start_time => erlang:system_time(1),
                 content_type => undefined,
                 user_agent => undefined,
-                timeout => infinity}, Headers).
+                timeout => infinity}, Headers),
+    maps:update_with(
+        headers, 
+        fun(Hdrs) -> maps:put(<<"content-type">>,maps:get(content_type, Processed), Hdrs) end, 
+        Processed).
 
 process_header(<<"grpc-timeout">>, Value, Acc) ->
     Acc#{timeout => Value};

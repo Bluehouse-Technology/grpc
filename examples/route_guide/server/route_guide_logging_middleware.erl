@@ -1,5 +1,5 @@
 %% Middleware example that logs to disk
--module(route_guide_middleware).
+-module(route_guide_logging_middleware).
 -behaviour(cowboy_middleware).
 
 -export([execute/2]).
