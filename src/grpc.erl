@@ -20,7 +20,7 @@
 %%
 %% @doc This is the interface for grpc.
 %%
-%% This module contains the functions to start and stop an Erlang gRPC server, as well 
+%% This module contains the functions to start and stop an Erlang gRPC server, as well
 %% as the functions that can be used by the programmer who implements the services
 %% that are provided by that server.
 %%
@@ -37,8 +37,8 @@
          set_trailers/2,
          send_headers/1,
          send_headers/2,
-         metadata/1, 
-         authority/1, scheme/1, method/1, path/1, 
+         metadata/1,
+         authority/1, scheme/1, method/1, path/1,
          set_compression/2]).
 
 
@@ -48,7 +48,7 @@
 %% The 'handler' module must export a function for each of the RPCs. Typically
 %% this module is generated from the .proto file using grpc:compile/1. The
 %% generated module contains skeleton functions for the RPCs, these must be
-%% extended with the actual implementation of the service. 
+%% extended with the actual implementation of the service.
 %%
 %% Optionally a start state ('handler_state') can be specified.
 %%
@@ -56,11 +56,13 @@
 %% function in the handler module will be used.
 
 -type services() :: #{ServiceName :: atom() := service_spec()}.
-%% Links each gRPC service to a 'service_spec()'. The 'service_spec()' contains 
+%% Links each gRPC service to a 'service_spec()'. The 'service_spec()' contains
 %% the information that the server needs to execute the service.
 
--type option() :: {transport_options, [ranch_ssl:ssl_opt()]} |
-                  {num_acceptors, integer()}.
+-type option() :: {ssl_options, [ranch_ssl:ssl_opt()]} |
+                  {middlewares, [module()]} |
+                  {auth_fun,    fun((stream()) -> {ok, stream()} | {error, binary()})} |
+                  {inactivity_timeout, non_neg_integer()}.
 -type metadata_key() :: binary().
 -type metadata_value() :: binary().
 -type metadata() :: #{metadata_key() => metadata_value()}.
@@ -89,18 +91,18 @@ compile(FileName) ->
     grpc:compile(FileName, []).
 
 -spec compile(FileName::string(), Options::gbp_compile:opts()) -> ok.
-%% @doc Compile a .proto file to generate server 
-%% side skeleton code and a module to encode and decode the 
+%% @doc Compile a .proto file to generate server
+%% side skeleton code and a module to encode and decode the
 %% protobuf messages.
 %%
 %% Refer to gbp for the options. gRPC will always use the options
-%% 'maps' (so that the protobuf messages are translated to and 
-%% from maps) and the option '{i, "."}' (so that .proto files in the 
+%% 'maps' (so that the protobuf messages are translated to and
+%% from maps) and the option '{i, "."}' (so that .proto files in the
 %% current working directory will be found).
 compile(FileName, Options) ->
     grpc_lib_compile:file(FileName, Options).
 
--spec start_server(Name::term(), 
+-spec start_server(Name::term(),
                    Transport::ssl|tcp,
                    Port::integer(),
                    Services::services()) -> {ok, CowboyListenerPid::pid()} |
@@ -112,10 +114,10 @@ start_server(Name, Transport, Port, Services) when is_map(Services) ->
 -spec start_server(Name::term(),
                    Transport::ssl|tcp,
                    Port::integer(),
-                   Services::services(), 
-                   Options::[option()]) -> 
+                   Services::services(),
+                   Options::[option()]) ->
   {ok, CowboyListenerPid::pid()} | {error, any()}.
-%% @doc Start a gRPC server. 
+%% @doc Start a gRPC server.
 %%
 %% The Name is used to identify this server in future calls, in particular when stopping
 %% the server.
@@ -127,14 +129,14 @@ start_server(Name, Transport, Port, Services, Options) when is_map(Services),
     grpc_server:start(Name, Transport, Port, Services, Options).
 
 -spec stop_server(Name::term()) -> ok | {error, not_found}.
-%% @doc Stop a gRPC server. 
+%% @doc Stop a gRPC server.
 stop_server(Name) ->
     grpc_server:stop(Name).
 
 -spec send(stream(), map() | [map()]) -> stream().
 %% @doc Send one or more messages from the server to the client.
 %%
-%% This function can be used in the service implementation to send 
+%% This function can be used in the service implementation to send
 %% one or more messages to the client via a stream.
 send(Stream, MsgList) when is_map(Stream),
                            is_list(MsgList)->
@@ -170,7 +172,7 @@ send(#{cowboy_req := CowboyReq,
 %% @doc Set metadata to be sent in headers.
 %% Fails if headers have already been sent.
 %%
-%% This function can be used in the service implementation to add 
+%% This function can be used in the service implementation to add
 %% metadata to a stream. The metadata will be sent to the client (as HTTP/2 headers)
 %% before the response message(s) is/are sent.
 set_headers(#{headers := Metadata} = Stream, Headers) ->
@@ -179,7 +181,7 @@ set_headers(#{headers := Metadata} = Stream, Headers) ->
 -spec set_trailers(stream(), metadata()) -> stream().
 %% @doc Set metadata to be sent in trailers.
 %%
-%% This function can be used in the service implementation to add 
+%% This function can be used in the service implementation to add
 %% metadata to a stream. The metadata will be sent to the client (as HTTP/2 end headers)
 %% after the response message(s) has/have been sent.
 set_trailers(#{trailers := Metadata} = Stream, Trailers) ->
@@ -198,9 +200,9 @@ send_headers(#{cowboy_req := Req,
                compression := Compression,
                headers_sent := false} = Stream, Headers) ->
     MergedHeaders = grpc_lib:maybe_encode_headers(maps:merge(Metadata, Headers)),
-    AllHeaders = case Compression of 
+    AllHeaders = case Compression of
                      none -> MergedHeaders;
-                     gzip -> 
+                     gzip ->
                          MergedHeaders#{<<"grpc-encoding">> => <<"gzip">>}
                  end,
     Stream#{cowboy_req => cowboy_req:stream_reply(200, AllHeaders, Req),
