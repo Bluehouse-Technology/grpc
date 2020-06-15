@@ -150,9 +150,7 @@ authenticated(#{cowboy_req := Req} = Stream, Options) ->
     end.
 
 get_function(Req, #{services := Services} = _Options, Stream) ->
-    QualifiedService = cowboy_req:binding(service, Req),
-    Service = binary_to_existing_atom(lists:last(binary:split(QualifiedService,
-                                                              <<".">>, [global]))),
+    Service = binary_to_existing_atom(cowboy_req:binding(service, Req)),
     #{Service := #{handler := Handler} = Spec} = Services,
     {module, _} = code:ensure_loaded(Handler),
     HandlerState = maps:get(handler_state, Spec, undefined),
