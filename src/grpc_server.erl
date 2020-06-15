@@ -25,6 +25,8 @@
 %%%
 -module(grpc_server).
 
+-include_lib("kernel/include/logger.hrl").
+
 -export([start/5]).
 -export([stop/1]).
 -export([init/2]).
@@ -233,7 +235,8 @@ execute(Msg, #{handler := Module,
             catch
                 throw:{Code, ErrorMsg} ->
                     {error, Code, ErrorMsg};
-                _:_ ->
+                _:Error:Trace ->
+                    ?LOG_ERROR("Internal server error: ~p at ~p", [Error, Trace]),
                     {error, ?GRPC_STATUS_INTERNAL_INT,
                      <<"Internal server error">>, Stream}
             end
