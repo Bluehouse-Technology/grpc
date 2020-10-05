@@ -190,7 +190,7 @@ set_trailers(#{trailers := Metadata} = Stream, Trailers) ->
 send_headers(#{headers_sent := true} = Stream) ->
     Stream;
 send_headers(Stream) ->
-    send_headers(Stream, #{}).
+    send_headers(Stream, #{<<"content-type">>=><<"application/grpc+proto">>}).
 
 -spec send_headers(stream(), metadata()) -> stream().
 send_headers(#{cowboy_req := Req,
