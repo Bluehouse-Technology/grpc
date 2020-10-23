@@ -29,18 +29,25 @@
 %%
 -module(grpc).
 
--export([compile/1, compile/2,
-         start_server/4, start_server/5,
-         stop_server/1,
-         send/2,
-         set_headers/2,
-         set_trailers/2,
-         send_headers/1,
-         send_headers/2,
-         metadata/1, 
-         authority/1, scheme/1, method/1, path/1, 
-         set_compression/2]).
+%% APIs
+-export([ compile/1
+        , compile/2
+        ]).
 
+-export([ start_server/4
+        , start_server/5
+        , stop_server/1
+        ]).
+
+-export([ send/2
+        , set_headers/2
+        , set_trailers/2
+        , send_headers/1
+        , send_headers/2
+        , metadata/1
+        , authority/1, scheme/1, method/1, path/1
+        , set_compression/2
+        ]).
 
 -type service_spec() :: #{handler := module(),
                           decoder => module(),

@@ -23,19 +23,17 @@
 %%% Starts and stops the server, and acts as the 
 %%% entry point for each request (the 'init' function).
 %%%
+
 -module(grpc_server).
 
--export([start/5]).
--export([stop/1]).
--export([init/2]).
+-include("grpc.hrl").
 
-%% status codes as defined here: http://www.grpc.io/grpc/csharp/html/T_Grpc_Core_StatusCode.htm
--define(GRPC_STATUS_OK, <<"0">>).
--define(GRPC_STATUS_UNKNOWN, <<"2">>).
--define(GRPC_STATUS_UNIMPLEMENTED, <<"12">>).
--define(GRPC_STATUS_INTERNAL, <<"13">>).
--define(GRPC_STATUS_INTERNAL_INT, 13).
--define(GRPC_STATUS_UNAUTHENTICATED, <<"16">>).
+-export([ start/5
+        , stop/1
+        ]).
+
+%% Cowboy callbacks
+-export([init/2]).
 
 -spec start(Name::term(),
             Transport::tcp|ssl,
@@ -56,13 +54,18 @@ start(Name, Transport, Port, Services, Options) ->
                 #{auth_fun => AuthFun,
                   services => Services}}]}]),
     ProtocolOpts = #{env => #{dispatch => Dispatch},
+                     protocols => [http2],
+                     max_received_frame_rate => {100000, 1000},
                      %% inactivity_timeout => infinity,
                      stream_handlers => [grpc_stream_handler,
                                          cowboy_stream_h],
                      middlewares => Middlewares},
     case Transport of
         tcp ->
-            cowboy:start_clear(Name, [{port, Port}], ProtocolOpts);
+            %% num_acceptors 10, max_connections 1024,
+            cowboy:start_clear(Name, #{num_acceptors => 8,
+                                       max_connections => 1024000,
+                                       socket_opts => [{port, Port}]}, ProtocolOpts);
         ssl ->
             TransportOpts = [{port, Port} |
                              proplists:get_value(transport_options, Options, [])],
@@ -73,11 +76,17 @@ start(Name, Transport, Port, Services, Options) ->
 stop(Name) ->
     cowboy:stop_listener(Name).
 
+%%--------------------------------------------------------------------
+%% Cowboy callbacks
+%%--------------------------------------------------------------------
+
 %% This is called by cowboy for each request. 
 %% It needs to differentiate between the different types of RPC (Simple RPC,
 %% Client-side streaming RPC etc.)
 init(Req, Options) ->
     Stream = make_stream(Req),
+    #{streamid := StreamId} = Req,
+    %io:format(standard_error, "streamid: ~p, body_length: ~p~n", [StreamId, cowboy_req:body_length(Req)]),
     case authenticate(Req, Options) of 
         false ->
             finalize(Stream, ?GRPC_STATUS_UNAUTHENTICATED, <<"">>);
@@ -89,7 +98,7 @@ init(Req, Options) ->
                     finalize(Stream, Code, Reason)
             end
     end.
-        
+
 make_stream(#{headers := Headers,
               host := Authority,
               scheme := Scheme,
@@ -173,7 +182,7 @@ authenticated(#{cowboy_req := Req} = Stream, Options) ->
         get_function(Req, Options, Stream)
     of
         NewStream ->
-            read_frames(NewStream)
+            read_frames(NewStream, <<>>)
     catch
         _:_ -> 
             throw({?GRPC_STATUS_UNIMPLEMENTED,
@@ -182,34 +191,40 @@ authenticated(#{cowboy_req := Req} = Stream, Options) ->
 
 get_function(Req, #{services := Services} = _Options, Stream) ->
     QualifiedService = cowboy_req:binding(service, Req), 
+    %% FIXME: Usue the QualifiedService name instead short name
     Service = binary_to_existing_atom(lists:last(binary:split(QualifiedService, 
-                                                              <<".">>, [global]))),
+                                                              <<".">>, [global])), utf8),
     #{Service := #{handler := Handler} = Spec} = Services,
     {module, _} = code:ensure_loaded(Handler),
     HandlerState = maps:get(handler_state, Spec, undefined),
     DecoderModule = maps:get(decoder, Spec, Handler:decoder()),
     {module, _} = code:ensure_loaded(DecoderModule),
-    Rpc = binary_to_existing_atom(cowboy_req:binding(method, Req)),
+    Rpc = binary_to_existing_atom(cowboy_req:binding(method, Req), utf8),
     Stream#{decoder => DecoderModule,
             service => Service,
             handler => Handler,
             handler_state => HandlerState,
             rpc => Rpc}.
 
-binary_to_existing_atom(B) ->
-    list_to_existing_atom(binary_to_list(B)).
-
 read_frames(#{cowboy_req := Req,
-              encoding := Encoding} = Stream) ->
+              encoding := Encoding} = Stream, Rest) ->
     %% This assumes that using option 'length' = 1 will avoid situations 
     %% where cowboy is waiting for a buffer to fill up, but on the other hand 
     %% it will also not be busy waiting (it looks like that happens when 
     %% 'length' = 0)
     %% TODO: Verify this...
-    {More, InFrame, Req2} = cowboy_req:read_body(Req, #{length => 1}),
+    %{More, InFrame, Req2} = cowboy_req:read_body(Req, #{length => 1}),
+
+    {More, InFrame, Req2} = cowboy_req:read_body(Req, #{length => cowboy_req:body_length(Req)}),
     %% TODO: Messages do not have to be aligned with frames. 
-    Messages = split_frame(InFrame, Encoding),
-    process_messages(Messages, Stream#{cowboy_req => Req2}, More).
+    %%
+    %% FIXME: for split
+    {NRest, Messages} = grpc_frame:split(<<Rest/binary, InFrame/binary>>, Encoding),
+    More1 = case More of
+                ok -> ok;
+                more -> {more, NRest}
+            end,
+    process_messages(Messages, Stream#{cowboy_req => Req2}, More1).
 
 process_messages([Message | T], Stream, More) ->
     case execute(Message, Stream) of
@@ -228,8 +243,8 @@ process_messages([], Stream, More) ->
     case More of 
         ok ->
             respond_and_finalize(execute(eof, Stream));
-        more ->
-            read_frames(Stream)
+        {more, Rest} ->
+            read_frames(Stream, Rest)
     end.
 
 respond_and_finalize({Response, NewStream}) ->
@@ -288,20 +303,3 @@ finalize(#{cowboy_req := Req, trailers := Trailers}, Status, <<"">>) ->
     {ok, Req, []};
 finalize(#{trailers := Trailers} = Stream, Status, Message) ->
     finalize(Stream#{trailers => Trailers#{<<"grpc-message">> => Message}}, Status, <<"">>).
-
-split_frame(Frame, Encoding) ->
-    split_frame(Frame, Encoding, []).
-split_frame(<<>>, _Encoding, Acc) ->
-    lists:reverse(Acc);
-split_frame(<<0, Length:32, Encoded:Length/binary, Rest/binary>>, Encoding, Acc) ->
-    split_frame(Rest, Encoding, [Encoded | Acc]);
-split_frame(<<1, Length:32, Compressed:Length/binary, Rest/binary>>, 
-            Encoding, Acc) ->
-    Encoded = case Encoding of
-                  <<"gzip">> ->
-                      zlib:gunzip(Compressed);
-                  _ ->
-                      throw({?GRPC_STATUS_UNIMPLEMENTED, 
-                             <<"compression mechanism not supported">>})
-              end,
-    split_frame(Rest, Encoding, [Encoded | Acc]).

@@ -31,6 +31,7 @@
 %% stream, it must take a very general approach. The chosen approach is to 
 %% "top up" the window to its original size (65535 bytes) as soon as it is
 %% 50% depleted.
+
 -module(grpc_stream_handler).
 
 -export([init/3]).
@@ -39,9 +40,10 @@
 -export([terminate/3]).
 -export([early_error/5]).
 
--record(state, {
-        next :: any(),
-	bytes_received :: integer()}).
+-record(state,
+        { next :: any()
+        , bytes_received :: integer()
+        }).
 
 -spec init(cowboy_stream:streamid(), cowboy_req:req(), cowboy:opts())
     -> {cowboy_stream:commands(), #state{}}.

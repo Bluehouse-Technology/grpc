@@ -15,3 +15,6 @@ rel/example_project
 ebin
 logs
 grpc.d
+*.DS_Store
+*.swp
+rebar.lock

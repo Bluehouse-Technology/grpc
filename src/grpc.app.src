@@ -1,7 +1,11 @@
-{application,grpc,
- [{description,"gRPC in Erlang"},
-  {vsn,"0.2.0"},
-  {modules,[]},
+{application, grpc,
+ [{description, "An Erlang implementation of gRPC "},
+  {vsn, "0.3.0"},
   {registered, []},
-  {env, []},
-  {applications,[gpb,cowboy]}]}.
+  {mod, {grpc_app, []}},
+  {applications, [kernel,stdlib,cowboy,gun]},
+  {env,[]},
+  {modules, []},
+  {licenses, ["Apache 2.0"]},
+  {links, []}
+ ]}.
