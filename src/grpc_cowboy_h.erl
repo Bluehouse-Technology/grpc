@@ -39,8 +39,8 @@ do_init(Req, Options) ->
              rest => <<>>,
              headers_sent => false,
              metadata => #{},
-             encoding => plain,
-             compression => maps:get(compression, Options, none),
+             encoding => identity,
+             compression => maps:get(compression, Options, identity),
              timeout => infinity}, Req),
     Services = maps:get(services, Options, #{}),
     RpcServicesAndName = {_, ReqRpc} =
@@ -78,15 +78,19 @@ do_init_state(St, #{headers := Headers}) ->
 
 process_header(<<"grpc-timeout">>, Value, Acc) ->
     Acc#{timeout => Value};
-process_header(<<"te">>, _Value, Acc) ->
-    %% XXX: not clear what should be done with this header
-    Acc;
-process_header(<<"user-agent">>, Value, Acc) ->
-    Acc#{user_agent => Value};
 process_header(<<"grpc-encoding">>, Value, Acc) ->
     Acc#{encoding => Value};
+process_header(<<"grpc-message-type">>, Value, Acc) ->
+    Acc#{message_type => Value};
+process_header(<<"user-agent">>, Value, Acc) ->
+    Acc#{user_agent => Value};
 process_header(<<"content-type">>, Value, Acc) ->
     Acc#{content_type => Value};
+process_header(K, _Value, Acc)
+  when K == <<"te">>;
+       K == <<"content-length">> ->
+    %% XXX: not clear what should be done with this header
+    Acc;
 process_header(Key, Value, #{metadata := Metadata} = Acc) ->
     {_, DecodedValue} = grpc_lib:maybe_decode_header({Key, Value}),
     Acc#{metadata => Metadata#{Key => DecodedValue}}.
@@ -142,15 +146,17 @@ events([{F, Args} | Events], St) ->
 
 shutdown(Status, Message, St) ->
     Req = maps:get(req, St),
-    NReq = case maps:get(headers_sent, St, false) of
-               false ->
-                   cowboy_send_header(headers(St), Req);
-               _ -> Req
-           end,
     Trailers = #{<<"grpc-status">> => Status,
                  <<"grpc-message">> => Message
                 },
-    cowboy_send_tralliers(Trailers, NReq),
+    NReq = case maps:get(headers_sent, St, false) of
+               false ->
+                   %% XXX: Only one "Trailers-Only" should be answered here.
+                   %%      Or send a HEADERS frame only?
+                   cowboy_send_header(headers(St), Req);
+               _ -> Req
+           end,
+    cowboy_send_trailers(Trailers, NReq),
     {ok, NReq, []}.
 
 headers(St) ->
@@ -171,10 +177,11 @@ handle_in(Frame, St) ->
     Decoder = maps:get(decoder, St),
     try
         Request = Decoder(Frame),
+        Metadata = maps:get(metadata, St),
         {Mod, Fun} = maps:get(handler, St),
-        case apply(Mod, Fun, [Request]) of
-            {ok, Resp} ->
-                {ok, [{handle_out, [reply, Resp]}], St};
+        case apply(Mod, Fun, [Request, Metadata]) of
+            {ok, Resp, NMetadata} ->
+                {ok, [{handle_out, [reply, Resp]}], St#{metadata => NMetadata}};
             {error, Code} ->
                 %% FIXME: Streaming: shutdown / reply_error ??
                 {shutdown, Code, <<"">>}
@@ -230,5 +237,5 @@ cowboy_send_header(Headers, Req) ->
 cowboy_send_body(Bytes, Req) ->
     ok = cowboy_req:stream_body(Bytes, nofin, Req).
 
-cowboy_send_tralliers(Trailers, Req) ->
+cowboy_send_trailers(Trailers, Req) ->
     ok = cowboy_req:stream_trailers(Trailers, Req).

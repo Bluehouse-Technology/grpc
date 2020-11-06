@@ -20,7 +20,7 @@
 
 %% APIs
 -export([ unary/4
-        %, stream/1
+       %, stream/1
         ]).
 
 %% APIs
@@ -44,40 +44,61 @@
          {<<"user-agent">>, <<"grpc-erlang/0.1.0">>},
          {<<"te">>, <<"trailers">>} | MD]).
 
+-type request() :: map().
+
+-type response() :: map().
+
+-type encoding() :: identity | gzip | deflate | snappy.
+
+-type options() ::
+        #{ channel => term()
+         , encoding => encoding()
+         , atom => term()
+         }.
+
+-type def() ::
+        #{ path := atom()
+         , service := atom()
+         , message_type := atom()
+         , marshal := function()
+         , unmarshal := function()
+         }.
+
+-type server() :: {http | https, string(), inet:port_number()}.
+
+-type grpc_opts() ::
+        #{ encoding => encoding()
+         , gun_opts => gun:opts()
+         }.
+
+-export_type([request/0, response/0, def/0, options/0, encoding/0]).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
--type encoding() :: none | gzip | deflate | snappy | atom().
-
--type options() :: #{ channel => term()
-                    , encoding => encoding()
-                    }.
-
--type def() :: #{ service := atom()
-                , message_type := atom()
-                , marshal := function()
-                , unmarshal := function()
-                }.
-
--spec unary(binary(), any(), def(), options()) ->
-    {ok, Response :: any(), Metadata :: any()}.
-unary(Path, Input, Def, Option) ->
-    ChannName = maps:get(channel, Option),
-    call(pick(ChannName), {unary, Path, Input, Def}).
-
+-spec start_link(term(), pos_integer(), server(), grpc_opts())
+    -> {ok, pid()} | ignore | {error, term()}.
 start_link(Pool, Id, Server, Opts) when is_map(Opts)  ->
     gen_server:start_link(?MODULE, [Pool, Id, Server, Opts], []).
+
+-spec unary(def(), request(), grpc:metadata(), options())
+    -> {ok, response(), grpc:metadata()}
+     | {error, term()}.
+%% @doc Unary function call
+unary(Def = #{marshal := Marshal}, Input, Metadata, Options)
+  when is_map(Input),
+       is_map(Metadata) ->
+    ChannName = maps:get(channel, Options),
+    Bytes = Marshal(Input),
+    call(pick(ChannName), {unary, Def, Bytes, maps:to_list(Metadata), Options}).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
--type grpc_opts() :: #{encoding => encoding(),
-                       gun_opts => gun:opts()}.
-
-init([Pool, Id, Server = {Scheme, Host, Port}, Opts]) ->
-    Encoding = maps:get(encoding, Opts, none),
+init([Pool, Id, Server = {_Scheme, Host, Port}, Opts]) ->
+    Encoding = maps:get(encoding, Opts, identity),
     GunOpts = maps:get(gun_opts, Opts, #{}),
     case gun:open(Host, Port, GunOpts#{protocols => [http2]}) of
         {ok, Pid} ->
@@ -94,14 +115,13 @@ init([Pool, Id, Server = {Scheme, Host, Port}, Opts]) ->
         {error, Reason} ->
             {error, Reason}
     end.
-
-handle_call({unary, Path, Input, Def = #{message_type := MessageType,
-                                         marshal := Marshal,
-                                         unmarshal := Unmarshal}}, From,
+handle_call({unary, #{path := Path,
+                      message_type := MessageType,
+                      unmarshal := Unmarshal}, Bytes, Metadata, _Options},
+            From,
             State = #state{gun_pid = GunPid, requests = Requests, encoding = Encoding}) ->
-    Metadata = [], %% FIXME:
     Headers = ?headers(atom_to_binary(Encoding, utf8), MessageType, Metadata),
-    Body = grpc_frame:encode(Encoding, Marshal(Input)),
+    Body = grpc_frame:encode(Encoding, Bytes),
     StreamRef = gun:post(GunPid, Path, Headers, Body),
     NState = State#state{requests = Requests#{StreamRef => {From, Unmarshal, <<>>}}},
     {noreply, NState};
@@ -165,7 +185,7 @@ handle_info(Info, State) ->
     logger:warning("Unexpected info: ~p~n", [Info]),
     {noreply, State}.
 
-terminate(_Reason, State = #state{pool = Pool, id = Id}) ->
+terminate(_Reason, #state{pool = Pool, id = Id}) ->
     gproc_pool:disconnect_worker(Pool, {Pool, Id}).
 
 code_change(_OldVsn, State, _Extra) ->

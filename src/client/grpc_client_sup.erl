@@ -33,6 +33,8 @@
 %% APIs
 %%--------------------------------------------------------------------
 
+-spec create_channel_pool(term(), uri_string:uri_string(), grpc_client:grpc_opts())
+    -> supervisor:startchild_ret().
 create_channel_pool(Name, URL, Opts) ->
     _ = application:ensure_all_started(gproc),
     case uri_string:parse(URL) of
@@ -47,6 +49,8 @@ create_channel_pool(Name, URL, Opts) ->
             supervisor:start_child(?APP_SUP, Spec);
         {error, Reason} -> {error, Reason}
     end.
+
+-spec stop_channel_pool(term()) -> ok.
 
 stop_channel_pool(Name) ->
     ok = supervisor:terminate_child(?APP_SUP, Name),

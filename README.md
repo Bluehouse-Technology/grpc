@@ -1,8 +1,17 @@
 # gRPC
 
-An implementation of a gRPC server in Erlang. 
+An implementation of a gRPC server in Erlang.
 
 An implementation of the client side is also available: [grpc_client](https://github.com/Bluehouse-Technology/grpc_client).
+
+## Feature
+
+- [x] Unary
+- [ ] Input streaming/ Output streaming/ Bidirectional streaming
+- [ ] Custom metadata
+- [ ] Encoding: identity, gzip, deflate, snappy
+- [ ] Timeout, Error Handling
+- [ ] Benchmark
 
 ## A quick "Hello world" example
 
@@ -54,14 +63,14 @@ Some code must be added to the skeleton to make it work:
 'SayHello'(#{name := Name}, Stream, _State) ->
     {#{message => "Hello, " ++ Name}, Stream}.
 ```
- 
+
 Now compile the modules and start the server (it will listen to port 10000):
 
 ```erlang
 2> c(helloworld).
 3> c(helloworld_server).
 4> grpc:start_server(hello, tcp, 10000, helloworld_server, []).
-``` 
+```
 
 To see if it actually works you will need a grpc client. These exist in
 many languages (see [grpc.io](https://grpc.io)), but here we will use the
@@ -82,7 +91,7 @@ erlang client
       trailers => #{<<"grpc-status">> => <<"0">>}}}
 ```
 
-## Documentation 
+## Documentation
 There are many more things you can do beyond what is shown in the simple
 example above - streaming from client to server,
 from server to client, both ways, adding metadata, compression,
@@ -95,7 +104,7 @@ individual modules and functions.
 
 ## Build
 gRPC uses [erlang.mk](https://erlang.mk/) as build tool. On Unix systems it can be built
-with: 
+with:
 
 ```
 make
@@ -108,7 +117,7 @@ See the [erlang.mk documentation](https://erlang.mk/guide/installation.html#_on_
 an explanation on how the tool can be used in a Windows environment.
 
 ## Testing
-`make ct` can be used to run a number of tests. 
+`make ct` can be used to run a number of tests.
 
 In the test directory there is an explanation how the software can be
 tested against the go gRPC implementation.
