@@ -37,12 +37,10 @@ all() ->
     [t_performance].
 
 init_per_suite(Cfg) ->
-    %dbg:tracer(),dbg:p(all,call),
-    %dbg:tpl(cowboy_clear, init,x),
-    %dbg:tp(grpc_server, init,x),
-
-    ok = compile_greeter_proto(Cfg),
-    {ok, _} = grpc:start_server(?SERVER_NAME, tcp, ?SERVER_PORT, #{'Greeter' => #{handler => greeter_server, decoder => greeter}}),
+    Services = #{protos => [ct_greeter_pb],
+                 services => #{'Greeter' => greeter_svr}
+                },
+    {ok, _} = grpc:start_server(?SERVER_NAME, ?SERVER_PORT, Services),
     {ok, _} = grpc_client_sup:create_channel_pool(?CHANN_NAME, "http://127.0.0.1:10023", #{}),
     application:ensure_all_started(grpc),
     Cfg.
@@ -52,24 +50,16 @@ end_per_suite(_Cfg) ->
     _ = grpc:stop_server(?SERVER_NAME),
     application:stop(grpc).
 
-compile_greeter_proto(Cfg) ->
-    DataDir = proplists:get_value(data_dir, Cfg),
-    TestDir = re:replace(DataDir, "/grpc_performance_SUITE_data", "", [{return, list}]),
-    ok = grpc_lib_compile:file(filename:join([TestDir, "greeter.proto"]), []),
-    ok = grpc_lib_compile:file(filename:join([TestDir, "greeter.proto"]), [{generate, client}]),
-    {ok, _} = compile:file("greeter_server.erl"),
-    {ok, _} = compile:file("greeter_client.erl"), ok.
-
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
 
 matrix() ->
     %% Procs count, Req/procs, Req size
-    [ {1, 20, 10240}        %% 100KB
+    [ {1, 2, 10}        %% 100KB
     , {100, 20, 1024}      %% 10MB
     , {1000, 20, 1024}     %% 100MB
-    %, {100, 10000, 1024}    %% 1000MB
+%    , {100, 10000, 1024}    %% 1000MB
 %
 %     , {10000, 1, 32}        %% 312KB
 %     , {1, 1000000, 32}        %% 312KB
@@ -107,12 +97,7 @@ shot_once_func(Size) ->
     Bin = chaos_bin(Size),
     HelloReq = #{name => Bin},
     fun() ->
-        try grpc_client:unary(
-              <<"/Greeter/SayHello">>, HelloReq,
-                #{message_type => <<"HelloRequest">>,
-                  marshal => fun(I) -> greeter:encode_msg(I, 'HelloRequest') end,
-                  unmarshal => fun(O) -> greeter:decode_msg(O, 'HelloReply') end },
-                #{channel => ?CHANN_NAME}) of
+        try greeter_client:say_hello(HelloReq, #{channel => ?CHANN_NAME}) of
             {ok, _, _} -> ok;
             Err ->
                 ?LOG("1Send request failed: ~p~n", [Err]),
@@ -146,6 +131,7 @@ shot_one_case({Pcnt, Rcnt, Rsize}) ->
               _F(X) ->
                   receive
                       {_, _I, _J} -> _F(X-1)
+                  after 1000 -> ok
                   end
           end,
     Clt(Pcnt*Rcnt),

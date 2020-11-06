@@ -32,7 +32,7 @@
 %% "top up" the window to its original size (65535 bytes) as soon as it is
 %% 50% depleted.
 
--module(grpc_stream_handler).
+-module(grpc_stream_h).
 
 -export([init/3]).
 -export([data/4]).

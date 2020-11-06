@@ -22,7 +22,7 @@
         , split/2
         ]).
 
--type encoding() :: identity | gzip.
+-type encoding() :: none | gzip.
 
 -define(GRPC_ERROR(Status, Message), {grpc_error, {Status, Message}}).
 -define(THROW(Status, Message), throw(?GRPC_ERROR(Status, Message))).
@@ -39,7 +39,7 @@ encode(gzip, Bin) ->
     CompressedBin = zlib:gzip(Bin),
     Length = byte_size(CompressedBin),
     <<1, Length:32, CompressedBin/binary>>;
-encode(identity, Bin) ->
+encode(none, Bin) ->
     Length = byte_size(Bin),
     <<0, Length:32, Bin/binary>>;
 encode(Encoding, _) ->

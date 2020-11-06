@@ -48,7 +48,7 @@
 %% APIs
 %%--------------------------------------------------------------------
 
--type encoding() :: identity | gzip | deflate | snappy | atom().
+-type encoding() :: none | gzip | deflate | snappy | atom().
 
 -type options() :: #{ channel => term()
                     , encoding => encoding()
@@ -77,7 +77,7 @@ start_link(Pool, Id, Server, Opts) when is_map(Opts)  ->
                        gun_opts => gun:opts()}.
 
 init([Pool, Id, Server = {Scheme, Host, Port}, Opts]) ->
-    Encoding = maps:get(encoding, Opts, identity),
+    Encoding = maps:get(encoding, Opts, none),
     GunOpts = maps:get(gun_opts, Opts, #{}),
     case gun:open(Host, Port, GunOpts#{protocols => [http2]}) of
         {ok, Pid} ->
@@ -103,7 +103,7 @@ handle_call({unary, Path, Input, Def = #{message_type := MessageType,
     Headers = ?headers(atom_to_binary(Encoding, utf8), MessageType, Metadata),
     Body = grpc_frame:encode(Encoding, Marshal(Input)),
     StreamRef = gun:post(GunPid, Path, Headers, Body),
-    NState = State#state{requests = Requests#{StreamRef => {From, Unmarshal, <<>>, os:system_time(millisecond)}}},
+    NState = State#state{requests = Requests#{StreamRef => {From, Unmarshal, <<>>}}},
     {noreply, NState};
 
 handle_call(_Request, _From, State) ->
@@ -115,15 +115,14 @@ handle_cast(_Msg, State) ->
 handle_info({gun_data, _GunPid, StreamRef, IsFin, Data},
             State = #state{encoding = Encoding, requests = Requests}) ->
     case maps:get(StreamRef, Requests, undefined) of
-        {From, Unmarshal, Acc, At} ->
+        {From, Unmarshal, Acc} ->
             NData = <<Acc/binary, Data/binary>>,
             case IsFin of
                 nofin ->
-                    NRequests = Requests#{StreamRef => {From, Unmarshal, NData, At}},
+                    NRequests = Requests#{StreamRef => {From, Unmarshal, NData}},
                     {noreply, State#state{requests = NRequests}};
                 fin ->
                     %% Reply
-                    %io:format("diff: ~w~n", [os:system_time(millisecond) - At]),
                     {<<>>, [FrameBin]} = grpc_frame:split(NData, Encoding),
                     gen_server:reply(From, {ok, Unmarshal(FrameBin), []}),
                     NRequests = maps:remove(StreamRef, Requests),
@@ -137,9 +136,7 @@ handle_info({gun_data, _GunPid, StreamRef, IsFin, Data},
 handle_info({gun_trailers, _GunPid, StreamRef, Trailers},
             State = #state{encoding = Encoding, requests = Requests}) ->
     case maps:get(StreamRef, Requests, undefined) of
-        {From, Unmarshal, Acc, At} ->
-            %io:format("diff: ~w~n", [os:system_time(millisecond) - At]),
-
+        {From, Unmarshal, Acc} ->
             {<<>>, [FrameBin]} = grpc_frame:split(Acc, Encoding),
             gen_server:reply(From, {ok, Unmarshal(FrameBin), Trailers}),
             NRequests = maps:remove(StreamRef, Requests),

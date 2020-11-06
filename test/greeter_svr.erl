@@ -14,16 +14,15 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(grpc_app).
+-module(greeter_svr).
 
--behaviour(application).
+-behavior(greeter_bhvr).
 
--export([ start/2
-        , stop/1
-        ]).
+-compile(export_all).
+-compile(nowarn_export_all).
 
-start(_StartType, _StartArgs) ->
-    grpc_sup:start_link().
+%%--------------------------------------------------------------------
+%% Callbacks
 
-stop(_State) ->
-    ok.
+say_hello(Request) ->
+    {ok, #{}}.

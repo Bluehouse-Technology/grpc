@@ -27,6 +27,8 @@
          maybe_decode_header/1,
          keytake/3]).
 
+-export([list_snake_case/1]).
+
 -type cert() :: term().
 
 -spec auth_fun(Directory::string()) -> fun((cert()) -> {true, string()} | false).
@@ -122,6 +124,25 @@ keytake(Key, KVList, Default) ->
         false ->
             {Default, KVList}
     end.
+
+list_snake_case(NameAtom) when is_atom(NameAtom) ->
+    list_snake_case(atom_to_list(NameAtom));
+list_snake_case(NameString) ->
+    Snaked = lists:foldl(
+               fun(RE, Snaking) ->
+                       re:replace(Snaking, RE, "\\1_\\2", [{return, list}, global])
+               end,
+               NameString,
+               [%% uppercase followed by lowercase
+                "(.)([A-Z][a-z]+)",
+                %% any consecutive digits
+                "(.)([0-9]+)",
+                %% uppercase with lowercase
+                %% or digit before it
+                "([a-z0-9])([A-Z])"]),
+    Snaked1 = string:replace(Snaked, ".", "_", all),
+    Snaked2 = string:replace(Snaked1, "__", "_", all),
+    string:to_lower(unicode:characters_to_list(Snaked2)).
 
 %%% ---------------------------------------------------------------------------
 %%% Internal functions
