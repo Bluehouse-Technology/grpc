@@ -71,7 +71,7 @@ jobs:
       run: |
         version=$(echo ${{ github.ref }} | sed -r  "s .*/.*/(.*) \1 g")
         sudo docker run --rm --privileged multiarch/qemu-user-static:register --reset
-        sudo docker run -i --name $SYSTEM -v $(pwd):/repos emqx/build-env:$ERL_OTP-$SYSTEM sh -c "cd /repos && make xref && make dialyzer"
+        sudo docker run --rm -i --name $SYSTEM -v $(pwd):/repos emqx/build-env:$ERL_OTP-$SYSTEM sh -c "cd /repos && make xref && make dialyzer"
     - name: Run tests
       env:
         ERL_OTP: erl22.1
@@ -79,7 +79,7 @@ jobs:
       run: |
         version=$(echo ${{ github.ref }} | sed -r  "s .*/.*/(.*) \1 g")
         sudo docker run --rm --privileged multiarch/qemu-user-static:register --reset
-        sudo docker run -i --name $SYSTEM -v $(pwd):/repos emqx/build-env:$ERL_OTP-$SYSTEM sh -c "cd /repos && make eunit && make ct"
+        sudo docker run --rm -i --name $SYSTEM -v $(pwd):/repos emqx/build-env:$ERL_OTP-$SYSTEM sh -c "cd /repos && make eunit && make ct"
 
   docker:
     runs-on: ubuntu-latest
@@ -89,8 +89,8 @@ jobs:
     - name: Code analyze
       env:
         ERL_OTP: erl22.1
-      run: docker run -i --name alpine -v $(pwd):/repos emqx/build-env:$ERL_OTP-alpine3.10-amd64 sh -c "cd /repos && make xref && make dialyzer"
+      run: docker run --rm -i --name alpine -v $(pwd):/repos emqx/build-env:$ERL_OTP-alpine3.10-amd64 sh -c "cd /repos && make xref && make dialyzer"
     - name: Run tests
       env:
         ERL_OTP: erl22.1
-      run: docker run -i --name alpine -v $(pwd):/repos emqx/build-env:$ERL_OTP-alpine3.10-amd64 sh -c "cd /repos && make eunit && make ct"
+      run: docker run --rm -i --name alpine -v $(pwd):/repos emqx/build-env:$ERL_OTP-alpine3.10-amd64 sh -c "cd /repos && make eunit && make ct"
