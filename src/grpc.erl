@@ -90,7 +90,7 @@ listen(AddrStr)
        is_binary(AddrStr) ->
     case re:split(AddrStr, ":", [{return, list}]) of
         [IPAddr, Port] ->
-            {ok, IPAddr1} = inet:parse_addr(IPAddr),
+            {ok, IPAddr1} = inet:parse_address(IPAddr),
             {IPAddr1, list_to_integer(Port)};
         [Port] ->
             {{0,0,0,0}, list_to_integer(Port)}

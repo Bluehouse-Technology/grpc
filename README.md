@@ -7,8 +7,8 @@ An implementation of the client side is also available: [grpc_client](https://gi
 ## Feature
 
 - [x] Unary
+- [x] Custom metadata
 - [ ] Input streaming/ Output streaming/ Bidirectional streaming
-- [ ] Custom metadata
 - [ ] Encoding: identity, gzip, deflate, snappy
 - [ ] Timeout, Error Handling
 - [ ] Benchmark

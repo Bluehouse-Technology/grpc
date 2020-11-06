@@ -19,13 +19,14 @@
 
 -module(grpc_lib).
 
--export([auth_fun/1,
-         decode_input/4,
-         encode_output/4,
-         maybe_encode_header/1,
-         maybe_encode_headers/1,
-         maybe_decode_header/1,
-         keytake/3]).
+-export([ auth_fun/1
+        , decode_input/4
+        , encode_output/4
+        , maybe_encode_header/1
+        , maybe_encode_headers/1
+        , maybe_decode_header/1
+        , keytake/3
+        ]).
 
 -export([list_snake_case/1]).
 

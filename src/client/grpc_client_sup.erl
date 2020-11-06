@@ -47,7 +47,7 @@ create_channel_pool(Name, URL, Opts) ->
                      type     => supervisor,
                      modules  => [?MODULE]},
             supervisor:start_child(?APP_SUP, Spec);
-        {error, Reason} -> {error, Reason}
+        {error, Reason, _} -> {error, Reason}
     end.
 
 -spec stop_channel_pool(term()) -> ok.
