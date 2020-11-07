@@ -53,14 +53,14 @@ end_per_suite(_Cfg) ->
 
 matrix() ->
     %% Procs count, Req/procs, Req size
-    [ {1, 2, 10}        %% 100KB
-    , {100, 20, 1024}      %% 10MB
-    , {1000, 20, 1024}     %% 100MB
+    [ {2, 2, 10}
+    , {100, 100, 1024}
+    , {1000, 100, 1024}
 %    , {100, 10000, 1024}    %% 1000MB
 %
-%     , {10000, 1, 32}        %% 312KB
-%     , {1, 1000000, 32}        %% 312KB
-%     , {100, 100, 32}        %% 312KB
+%    , {10000, 1, 32}        %% 312KB
+%    , {1, 1000000, 32}      %% 312KB
+%    , {100, 100, 32}        %% 312KB
 %    , {100, 100, 64}        %% 624KB
 %    , {100, 100, 128}       %% 1.24MB
 %    , {100, 100, 1024}      %% 100MB
@@ -69,19 +69,6 @@ matrix() ->
     ].
 
 t_performance(_) ->
-   % code:add_path("/Users/hejianbo/eflame/ebin"),
-   % code:load_file(eflame),
-   % code:load_file(eflame2),
-   % code:load_file(eflame_app),
-   % code:load_file(eflame_sup),
-
-   % Pid = gproc_pool:pick_worker(?CHANN_NAME, self()),
-   % spawn(fun() ->
-   %    io:format("Tracing started...\n"),
-   %    eflame2:write_trace(global_calls_plus_new_procs, "/tmp/ef.test.0",Pid , 10*1000),
-   %    io:format("Tracing finished!\n")
-   % end),
-
     Res = [{M, shot_one_case(M)} || M <- matrix()],
     ?LOG("\n\n"),
     ?LOG("Statistics: \n"),
@@ -132,8 +119,14 @@ shot_one_case({Pcnt, Rcnt, Rsize}) ->
                   end
           end,
     Clt(Pcnt*Rcnt),
-    {_, Time1} = statistics(runtime),
-    {_, Time2} = statistics(wall_clock),
+    Time1 = case statistics(runtime) of
+                {_, 0} -> 1;
+                {_, T1} -> T1
+            end,
+    Time2 = case statistics(wall_clock) of
+                {_, 0} -> 1;
+                {_, T2} -> T2
+            end,
     ?LOG("--   CPU time: ~s, Procs time: ~s\n", [format_ts(Time1), format_ts(Time2)]),
     ?LOG("--        TPS: ~s/s (~s/s) \n", [format_cnt(1000*RequestCnt/Time1), format_cnt(1000*RequestCnt/Time2)]),
     ?LOG("-- Throughput: ~s/s (~s/s) \n", [format_byte(1000*Throughput/Time1), format_byte(1000*Throughput/Time2)]),
