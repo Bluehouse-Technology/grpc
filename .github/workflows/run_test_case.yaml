@@ -10,16 +10,23 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - uses: ilammy/msvc-dev-cmd@v1
-    - name: run eunit
+    - name: Run tests
       run: |
         set-executionpolicy remotesigned -s cu
         iex (new-object net.webclient).downloadstring('https://get.scoop.sh')
+        $env:path + ";" + $env:USERPROFILE + "\scoop\shims"
         scoop bucket add extras https://github.com/lukesampson/scoop-extras.git
-        scoop install sudo curl 7zip erlang visualc vcredist2013
+        scoop update
+        scoop install sudo curl 7zip vcredist2013
+        scoop install erlang@22.3
+
         $rebar3 = $env:USERPROFILE + "\rebar3"
         (New-Object System.Net.WebClient).DownloadFile('https://s3.amazonaws.com/rebar3/rebar3', $rebar3)
-        escript $rebar3 eunit
 
+        escript $rebar3 xref
+        escript $rebar3 dialyzer
+        escript $rebar3 eunit
+        escript $rebar3 ct
   mac:
     runs-on: macos-latest
 
