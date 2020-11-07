@@ -25,7 +25,6 @@
 -define(LOG(Fmt), io:format(standard_error, Fmt, [])).
 -define(LOG(Fmt, Args), io:format(standard_error, Fmt, Args)).
 
--define(SERVER_PORT, 10023).
 -define(SERVER_NAME, server).
 -define(CHANN_NAME, channel).
 
@@ -40,15 +39,13 @@ init_per_suite(Cfg) ->
     Services = #{protos => [ct_greeter_pb],
                  services => #{'Greeter' => greeter_svr}
                 },
-    {ok, _} = grpc:start_server(?SERVER_NAME, ?SERVER_PORT, Services),
+    {ok, _} = grpc:start_server(?SERVER_NAME, 10023, Services),
     {ok, _} = grpc_client_sup:create_channel_pool(?CHANN_NAME, "http://127.0.0.1:10023", #{}),
-    application:ensure_all_started(grpc),
     Cfg.
 
 end_per_suite(_Cfg) ->
     _ = grpc_client_sup:stop_channel_pool(?CHANN_NAME),
-    _ = grpc:stop_server(?SERVER_NAME),
-    application:stop(grpc).
+    _ = grpc:stop_server(?SERVER_NAME).
 
 %%--------------------------------------------------------------------
 %% Test cases

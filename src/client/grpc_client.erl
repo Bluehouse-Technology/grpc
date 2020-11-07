@@ -100,7 +100,11 @@ unary(Def = #{marshal := Marshal}, Input, Metadata, Options)
 init([Pool, Id, Server = {_Scheme, Host, Port}, Opts]) ->
     Encoding = maps:get(encoding, Opts, identity),
     GunOpts = maps:get(gun_opts, Opts, #{}),
-    case gun:open(Host, Port, GunOpts#{protocols => [http2]}) of
+    NGunOpts = maps:merge(#{protocols => [http2],
+                            connect_timeout => 5000,
+                            http2_opts => #{keepalive => 60000}
+                           }, GunOpts),
+    case gun:open(Host, Port, NGunOpts) of
         {ok, Pid} ->
             {ok, _} = gun:await_up(Pid),
             true = gproc_pool:connect_worker(Pool, {Pool, Id}),
@@ -111,7 +115,7 @@ init([Pool, Id, Server = {_Scheme, Host, Port}, Opts]) ->
                     server = Server,
                     encoding = Encoding,
                     requests = #{},
-                    gun_opts = GunOpts}};
+                    gun_opts = NGunOpts}};
         {error, Reason} ->
             {error, Reason}
     end.
