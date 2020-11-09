@@ -97,28 +97,27 @@ unary(Def = #{marshal := Marshal}, Input, Metadata, Options)
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([Pool, Id, Server = {_Scheme, Host, Port}, Opts]) ->
+init([Pool, Id, Server = {_, _, _}, Opts]) ->
     Encoding = maps:get(encoding, Opts, identity),
     GunOpts = maps:get(gun_opts, Opts, #{}),
     NGunOpts = maps:merge(#{protocols => [http2],
                             connect_timeout => 5000,
                             http2_opts => #{keepalive => 60000}
                            }, GunOpts),
-    case gun:open(Host, Port, NGunOpts) of
-        {ok, Pid} ->
-            {ok, _} = gun:await_up(Pid),
-            true = gproc_pool:connect_worker(Pool, {Pool, Id}),
-            {ok, #state{
-                    pool = Pool,
-                    id = Id,
-                    gun_pid = Pid,
-                    server = Server,
-                    encoding = Encoding,
-                    requests = #{},
-                    gun_opts = NGunOpts}};
-        {error, Reason} ->
-            {error, Reason}
-    end.
+
+    true = gproc_pool:connect_worker(Pool, {Pool, Id}),
+    {ok, #state{
+            pool = Pool,
+            id = Id,
+            gun_pid = undefined,
+            server = Server,
+            encoding = Encoding,
+            requests = #{},
+            gun_opts = NGunOpts}}.
+
+handle_call(Req = {unary, _, _, _, _}, From, State = #state{gun_pid = undefined}) ->
+    handle_call(Req, From, do_connect(State));
+
 handle_call({unary, #{path := Path,
                       message_type := MessageType,
                       unmarshal := Unmarshal}, Bytes, Metadata, _Options},
@@ -198,6 +197,18 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
+
+do_connect(State = #state{gun_pid = GunPid})
+  when is_pid(GunPid) ->
+    State;
+do_connect(State = #state{server = {_, Host, Port}, gun_opts = GunOpts}) ->
+    case gun:open(Host, Port, GunOpts) of
+        {ok, Pid} ->
+            {ok, _} = gun:await_up(Pid),
+            State#state{gun_pid = Pid};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 -compile({inline, [call/2, pick/1]}).
 
