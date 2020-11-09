@@ -198,9 +198,6 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-do_connect(State = #state{gun_pid = GunPid})
-  when is_pid(GunPid) ->
-    State;
 do_connect(State = #state{server = {_, Host, Port}, gun_opts = GunOpts}) ->
     case gun:open(Host, Port, GunOpts) of
         {ok, Pid} ->
