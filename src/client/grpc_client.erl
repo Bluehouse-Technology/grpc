@@ -184,6 +184,9 @@ handle_info({gun_error, _GunPid, StreamRef, Reason},
             {noreply, State}
     end;
 
+handle_info({gun_down, GunPid, http2, Reason, _, _}, State = #state{gun_pid = GunPid}) ->
+    {noreply, State#state{gun_pid = undefined}};
+
 handle_info(Info, State) ->
     logger:warning("Unexpected info: ~p~n", [Info]),
     {noreply, State}.
