@@ -22,7 +22,7 @@
         , stop_server/1
         ]).
 
--type listen_on() :: {inet:ip_address(), inet:port_number()}.
+-type listen_on() :: {inet:ip_address(), inet:port_number()} | inet:port_number().
 -type services() :: #{protos := [module()],
                       services := #{ServiceName :: atom() := HandlerModule :: module()}
                      }.
@@ -40,12 +40,12 @@
 %%--------------------------------------------------------------------
 
 -spec start_server(any(), listen_on(), services())
-    -> ok | {error, term()}.
+    -> {ok, pid()} | {error, term()}.
 start_server(Name, ListenOn, Services) ->
     start_server(Name, ListenOn, Services, []).
 
 -spec start_server(any(), listen_on(), services(), [option()])
-    -> ok | {error, term()}.
+    -> {ok, pid()} | {error, term()}.
 %% @doc Start a gRPC server
 start_server(Name, ListenOn, Services, Options) ->
     _ = application:ensure_all_started(grpc),
