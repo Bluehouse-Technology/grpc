@@ -57,9 +57,9 @@
          }.
 
 -type def() ::
-        #{ path := atom()
+        #{ path := binary()
          , service := atom()
-         , message_type := atom()
+         , message_type := binary()
          , marshal := function()
          , unmarshal := function()
          }.
