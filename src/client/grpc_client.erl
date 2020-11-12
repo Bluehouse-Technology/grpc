@@ -18,6 +18,8 @@
 
 -behaviour(gen_server).
 
+-include("grpc.hrl").
+
 %% APIs
 -export([ unary/4
        %, stream/1
@@ -92,6 +94,7 @@ start_link(Pool, Id, Server, Opts) when is_map(Opts)  ->
 
 -spec unary(def(), request(), grpc:metadata(), options())
     -> {ok, response(), grpc:metadata()}
+     | {error, {grpc_error, grpc_status(), grpc_message()}}
      | {error, term()}.
 %% @doc Unary function call
 unary(Def = #{marshal := Marshal,
@@ -194,8 +197,15 @@ handle_info({gun_trailers, GunPid, StreamRef, Trailers},
             NRequests = maps:remove(StreamRef, Requests),
             {noreply, State#state{requests = NRequests}};
         {From, _EndingTs, Acc} ->
-            {<<>>, [FrameBin]} = grpc_frame:split(Acc, Encoding),
-            gen_server:reply(From, {ok, FrameBin, Trailers}),
+            GrpcStatus = proplists:get_value(<<"grpc-status">>, Trailers),
+            GrpcMessags = proplists:get_value(<<"grpc-message">>, Trailers, <<>>),
+            case GrpcStatus of
+                ?GRPC_STATUS_OK ->
+                    {<<>>, [FrameBin]} = grpc_frame:split(Acc, Encoding),
+                    gen_server:reply(From, {ok, FrameBin, Trailers});
+                _ ->
+                    gen_server:reply(From, {error, {grpc_error, GrpcStatus, GrpcMessags}})
+            end,
             NRequests = maps:remove(StreamRef, Requests),
             {noreply, State#state{requests = NRequests}};
         _ ->

@@ -35,4 +35,8 @@
 -define(GRPC_STATUS_DATA_LOSS, <<"15">>).
 -define(GRPC_STATUS_UNAUTHENTICATED, <<"16">>).
 
+-type grpc_status() :: binary(). %% GRPC_STATUS_OK...GRPC_STATUS_UNAUTHENTICATED
+
+-type grpc_message() :: binary().
+
 -endif.

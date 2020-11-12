@@ -187,9 +187,9 @@ handle_in(Frame, St) ->
                 {shutdown, Code, <<"">>}
         end
     catch T:R:Stk ->
-        logger:error("Handle in throw an exeception: ~p:~p, stacktrace: ~p~n",
+        logger:error("Handle frame crashed: {~p, ~p} stacktrace: ~0p~n",
                     [T, R, Stk]),
-        {shutdown, ?GRPC_STATUS_INTERNAL, <<"">>}
+        {shutdown, ?GRPC_STATUS_INTERNAL, <<"RPC Execution Crashed">>}
     end.
 
 handle_out(reply, Resp, St) ->
