@@ -22,3 +22,4 @@ rebar3.crashdump
 src/ct_greeter_pb.erl
 src/greeter_bhvr.erl
 src/greeter_client.erl
+.rebar3/

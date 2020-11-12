@@ -53,8 +53,11 @@ create_channel_pool(Name, URL, Opts) ->
 -spec stop_channel_pool(term()) -> ok.
 
 stop_channel_pool(Name) ->
-    ok = supervisor:terminate_child(?APP_SUP, Name),
-    ok = supervisor:delete_child(?APP_SUP, Name).
+    case supervisor:terminate_child(?APP_SUP, Name) of
+        ok ->
+            ok = supervisor:delete_child(?APP_SUP, Name);
+        R -> R
+    end.
 
 %%--------------------------------------------------------------------
 %% Callbacks

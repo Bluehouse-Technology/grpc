@@ -35,14 +35,7 @@
         , code_change/3
         ]).
 
--record(state, {pool, id, gun_pid, encoding, server, requests, gun_opts}).
-
--define(headers(Encoding, MessageType, MD),
-        [{<<"grpc-encoding">>, Encoding},
-         {<<"grpc-message-type">>, MessageType},
-         {<<"content-type">>, <<"application/grpc+proto">>},
-         {<<"user-agent">>, <<"grpc-erlang/0.1.0">>},
-         {<<"te">>, <<"trailers">>} | MD]).
+-record(state, {pool, id, gun_pid, mref, encoding, server, requests, gun_opts}).
 
 -type request() :: map().
 
@@ -73,6 +66,21 @@
 
 -export_type([request/0, response/0, def/0, options/0, encoding/0]).
 
+-define(headers(Encoding, MessageType, MD),
+        [{<<"grpc-encoding">>, Encoding},
+         {<<"grpc-message-type">>, MessageType},
+         {<<"content-type">>, <<"application/grpc+proto">>},
+         {<<"user-agent">>, <<"grpc-erlang/0.1.0">>},
+         {<<"te">>, <<"trailers">>} | MD]).
+
+-define(DEFAULT_GUN_OPTS,
+        #{protocols => [http2],
+          connect_timeout => 5000,
+          http2_opts => #{keepalive => 60000}
+         }).
+
+-define(UNARY_TIMEOUT, 5000).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -86,12 +94,26 @@ start_link(Pool, Id, Server, Opts) when is_map(Opts)  ->
     -> {ok, response(), grpc:metadata()}
      | {error, term()}.
 %% @doc Unary function call
-unary(Def = #{marshal := Marshal}, Input, Metadata, Options)
+unary(Def = #{marshal := Marshal,
+              unmarshal := Unmarshal}, Input, Metadata, Options)
   when is_map(Input),
        is_map(Metadata) ->
-    ChannName = maps:get(channel, Options),
-    Bytes = Marshal(Input),
-    call(pick(ChannName), {unary, Def, Bytes, maps:to_list(Metadata), Options}).
+    case maps:get(channel, Options, undefined) of
+        undefined ->
+            {error, miss_channel_option};
+        ChannName ->
+            ChannName = maps:get(channel, Options),
+            Timeout = maps:get(timeout, Options, ?UNARY_TIMEOUT),
+            Bytes = Marshal(Input),
+            case call(pick(ChannName),
+                      {unary, Def, Bytes, maps:to_list(Metadata), Options},
+                      Timeout + 1000) of
+                {ok, Output, ReplyMetadata} ->
+                    {ok, Unmarshal(Output), ReplyMetadata};
+                {error, Reason} ->
+                    {error, Reason}
+            end
+    end.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -100,11 +122,7 @@ unary(Def = #{marshal := Marshal}, Input, Metadata, Options)
 init([Pool, Id, Server = {_, _, _}, Opts]) ->
     Encoding = maps:get(encoding, Opts, identity),
     GunOpts = maps:get(gun_opts, Opts, #{}),
-    NGunOpts = maps:merge(#{protocols => [http2],
-                            connect_timeout => 5000,
-                            http2_opts => #{keepalive => 60000}
-                           }, GunOpts),
-
+    NGunOpts = maps:merge(?DEFAULT_GUN_OPTS, GunOpts),
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, #state{
             pool = Pool,
@@ -116,17 +134,22 @@ init([Pool, Id, Server = {_, _, _}, Opts]) ->
             gun_opts = NGunOpts}}.
 
 handle_call(Req = {unary, _, _, _, _}, From, State = #state{gun_pid = undefined}) ->
-    handle_call(Req, From, do_connect(State));
+    case do_connect(State) of
+        {error, Reason} ->
+            {reply, {error, Reason}, State};
+        NState ->
+            handle_call(Req, From, NState)
+    end;
 
 handle_call({unary, #{path := Path,
-                      message_type := MessageType,
-                      unmarshal := Unmarshal}, Bytes, Metadata, _Options},
+                      message_type := MessageType}, Bytes, Metadata, Options},
             From,
             State = #state{gun_pid = GunPid, requests = Requests, encoding = Encoding}) ->
     Headers = ?headers(atom_to_binary(Encoding, utf8), MessageType, Metadata),
     Body = grpc_frame:encode(Encoding, Bytes),
     StreamRef = gun:post(GunPid, Path, Headers, Body),
-    NState = State#state{requests = Requests#{StreamRef => {From, Unmarshal, <<>>}}},
+    EndingTs = erlang:system_time(millisecond) + maps:get(timeout, Options, ?UNARY_TIMEOUT),
+    NState = State#state{requests = Requests#{StreamRef => {From, EndingTs, <<>>}}},
     {noreply, NState};
 
 handle_call(_Request, _From, State) ->
@@ -135,19 +158,24 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({gun_data, _GunPid, StreamRef, IsFin, Data},
+handle_info({gun_data, GunPid, StreamRef, IsFin, Data},
             State = #state{encoding = Encoding, requests = Requests}) ->
+    NowTs = os:system_time(millisecond),
     case maps:get(StreamRef, Requests, undefined) of
-        {From, Unmarshal, Acc} ->
+        {_, EndingTs, _} when NowTs > EndingTs ->
+            _ = gun:cancel(GunPid, StreamRef),
+            _ = gun:await(GunPid, StreamRef, 0),
+            NRequests = maps:remove(StreamRef, Requests),
+            {noreply, State#state{requests = NRequests}};
+        {From, EndingTs, Acc} ->
             NData = <<Acc/binary, Data/binary>>,
             case IsFin of
                 nofin ->
-                    NRequests = Requests#{StreamRef => {From, Unmarshal, NData}},
+                    NRequests = Requests#{StreamRef => {From, EndingTs, NData}},
                     {noreply, State#state{requests = NRequests}};
                 fin ->
-                    %% Reply
                     {<<>>, [FrameBin]} = grpc_frame:split(NData, Encoding),
-                    gen_server:reply(From, {ok, Unmarshal(FrameBin), []}),
+                    gen_server:reply(From, {ok, FrameBin, []}),
                     NRequests = maps:remove(StreamRef, Requests),
                     {noreply, State#state{requests = NRequests}}
             end;
@@ -156,16 +184,22 @@ handle_info({gun_data, _GunPid, StreamRef, IsFin, Data},
             {noreply, State}
     end;
 
-handle_info({gun_trailers, _GunPid, StreamRef, Trailers},
+handle_info({gun_trailers, GunPid, StreamRef, Trailers},
             State = #state{encoding = Encoding, requests = Requests}) ->
+    NowTs = os:system_time(millisecond),
     case maps:get(StreamRef, Requests, undefined) of
-        {From, Unmarshal, Acc} ->
-            {<<>>, [FrameBin]} = grpc_frame:split(Acc, Encoding),
-            gen_server:reply(From, {ok, Unmarshal(FrameBin), Trailers}),
+        {_, EndingTs, _} when NowTs > EndingTs ->
+            _ = gun:cancel(GunPid, StreamRef),
+            _ = gun:await(GunPid, StreamRef, 0),
             NRequests = maps:remove(StreamRef, Requests),
             {noreply, State#state{requests = NRequests}};
-        _Oth ->
-            logger:error("gun_trailers Unknown stream ref: ~p, ~p~n", [StreamRef, _Oth]),
+        {From, _EndingTs, Acc} ->
+            {<<>>, [FrameBin]} = grpc_frame:split(Acc, Encoding),
+            gen_server:reply(From, {ok, FrameBin, Trailers}),
+            NRequests = maps:remove(StreamRef, Requests),
+            {noreply, State#state{requests = NRequests}};
+        _ ->
+            logger:error("gun_trailers Unknown stream ref: ~p~n", [StreamRef]),
             {noreply, State}
     end;
 
@@ -184,7 +218,15 @@ handle_info({gun_error, _GunPid, StreamRef, Reason},
             {noreply, State}
     end;
 
-handle_info({gun_down, GunPid, http2, Reason, _, _}, State = #state{gun_pid = GunPid}) ->
+handle_info({gun_up, GunPid, http2}, State = #state{gun_pid = GunPid}) ->
+    {noreply, State};
+
+handle_info({gun_down, GunPid, http2, _Reason, _, _}, State = #state{gun_pid = GunPid}) ->
+    {noreply, State};
+
+handle_info({'DOWN', MRef, process, GunPid, Reason},
+            State = #state{mref = MRef, gun_pid = GunPid}) ->
+    logger:warning("Gun process ~p down, reason: ~p~n", [GunPid, Reason]),
     {noreply, State#state{gun_pid = undefined}};
 
 handle_info(Info, State) ->
@@ -204,17 +246,22 @@ code_change(_OldVsn, State, _Extra) ->
 do_connect(State = #state{server = {_, Host, Port}, gun_opts = GunOpts}) ->
     case gun:open(Host, Port, GunOpts) of
         {ok, Pid} ->
-            {ok, _} = gun:await_up(Pid),
-            State#state{gun_pid = Pid};
+            case gun:await_up(Pid) of
+                {ok, _Protocol} ->
+                    MRef = monitor(process, Pid),
+                    State#state{mref = MRef, gun_pid = Pid};
+                {error, Reason} ->
+                    gun:close(Pid),
+                    {error, Reason}
+            end;
         {error, Reason} ->
             {error, Reason}
     end.
 
--compile({inline, [call/2, pick/1]}).
+-compile({inline, [call/3, pick/1]}).
 
-call(ChannPid, Msg) ->
-    %io:format(standard_error, "~p~n", [proplists:get_value(message_queue_len, process_info(self()))]),
-    gen_server:call(ChannPid, Msg, infinity).
+call(ChannPid, Msg, Timeout) ->
+    gen_server:call(ChannPid, Msg, Timeout).
 
 pick(ChannName) ->
     gproc_pool:pick_worker(ChannName, self()).
