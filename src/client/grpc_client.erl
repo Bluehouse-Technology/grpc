@@ -231,8 +231,16 @@ handle_info({gun_error, _GunPid, StreamRef, Reason},
 handle_info({gun_up, GunPid, http2}, State = #state{gun_pid = GunPid}) ->
     {noreply, State};
 
-handle_info({gun_down, GunPid, http2, _Reason, _, _}, State = #state{gun_pid = GunPid}) ->
-    {noreply, State};
+handle_info({gun_down, GunPid, http2, Reason, KilledStreams, _}, State = #state{gun_pid = GunPid, requests = Requests}) ->
+    NRequests = lists:foldl(fun(StreamRef, Acc) ->
+                                case maps:take(StreamRef, Acc) of
+                                    error -> Acc;
+                                    {{From, _, _, _}, NAcc} ->
+                                        gen_server:reply(From, {error, Reason}),
+                                        NAcc
+                                end
+                            end, Requests, KilledStreams),
+    {noreply, State#state{requests = NRequests}};
 
 handle_info({'DOWN', MRef, process, GunPid, Reason},
             State = #state{mref = MRef, gun_pid = GunPid, requests = Requests}) ->
