@@ -219,7 +219,7 @@ handle_info({gun_response, _GunPid, _StreamRef, _IsFin, _Status, _Headers}, Stat
 handle_info({gun_error, _GunPid, StreamRef, Reason},
             State = #state{requests = Requests}) ->
     case maps:get(StreamRef, Requests, undefined) of
-        {From, _, _, _} ->
+        {From, _, _} ->
             gen_server:reply(From, {error, Reason}),
             NRequests = maps:remove(StreamRef, Requests),
             {noreply, State#state{requests = NRequests}};
@@ -235,7 +235,7 @@ handle_info({gun_down, GunPid, http2, Reason, KilledStreams, _}, State = #state{
     NRequests = lists:foldl(fun(StreamRef, Acc) ->
                                 case maps:take(StreamRef, Acc) of
                                     error -> Acc;
-                                    {{From, _, _, _}, NAcc} ->
+                                    {{From, _, _}, NAcc} ->
                                         gen_server:reply(From, {error, Reason}),
                                         NAcc
                                 end
@@ -245,7 +245,7 @@ handle_info({gun_down, GunPid, http2, Reason, KilledStreams, _}, State = #state{
 handle_info({'DOWN', MRef, process, GunPid, Reason},
             State = #state{mref = MRef, gun_pid = GunPid, requests = Requests}) ->
     logger:warning("Gun process ~p down, reason: ~p~n", [GunPid, Reason]),
-    lists:foreach(fun({_, {From, _, _, _}}) ->
+    lists:foreach(fun({_, {From, _, _}}) ->
                       gen_server:reply(From, {error, Reason})
                   end, maps:to_list(Requests)),
     {noreply, State#state{gun_pid = undefined, requests = #{}}};
