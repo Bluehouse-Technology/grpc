@@ -235,9 +235,12 @@ handle_info({gun_down, GunPid, http2, _Reason, _, _}, State = #state{gun_pid = G
     {noreply, State};
 
 handle_info({'DOWN', MRef, process, GunPid, Reason},
-            State = #state{mref = MRef, gun_pid = GunPid}) ->
+            State = #state{mref = MRef, gun_pid = GunPid, requests = Requests}) ->
     logger:warning("Gun process ~p down, reason: ~p~n", [GunPid, Reason]),
-    {noreply, State#state{gun_pid = undefined}};
+    lists:foreach(fun({_, {From, _, _, _}}) ->
+                      gen_server:reply(From, {error, Reason})
+                  end, maps:to_list(Requests)),
+    {noreply, State#state{gun_pid = undefined, requests = #{}}};
 
 handle_info(Info, State) ->
     logger:warning("Unexpected info: ~p~n", [Info]),
