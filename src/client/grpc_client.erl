@@ -303,6 +303,8 @@ flush_stream(GunPid, StreamRef) ->
             flush_stream(GunPid, StreamRef);
         {gun_data, GunPid, StreamRef, _, _} ->
             flush_stream(GunPid, StreamRef);
+        {gun_trailers, GunPid, StreamRef, _} ->
+			flush_stream(GunPid, StreamRef);
         {gun_error, GunPid, StreamRef, _} ->
             flush_stream(GunPid, StreamRef)
 	after 0 ->
