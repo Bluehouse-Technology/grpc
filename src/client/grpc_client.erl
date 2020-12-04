@@ -163,11 +163,11 @@ handle_cast(_Msg, State) ->
 
 handle_info({gun_data, GunPid, StreamRef, IsFin, Data},
             State = #state{encoding = Encoding, requests = Requests}) ->
-    NowTs = os:system_time(millisecond),
+    NowTs = erlang:system_time(millisecond),
     case maps:get(StreamRef, Requests, undefined) of
         {_, EndingTs, _} when NowTs > EndingTs ->
             _ = gun:cancel(GunPid, StreamRef),
-            _ = gun:await(GunPid, StreamRef, 0),
+            flush_stream(GunPid, StreamRef),
             NRequests = maps:remove(StreamRef, Requests),
             {noreply, State#state{requests = NRequests}};
         {From, EndingTs, Acc} ->
@@ -189,11 +189,11 @@ handle_info({gun_data, GunPid, StreamRef, IsFin, Data},
 
 handle_info({gun_trailers, GunPid, StreamRef, Trailers},
             State = #state{encoding = Encoding, requests = Requests}) ->
-    NowTs = os:system_time(millisecond),
+    NowTs = erlang:system_time(millisecond),
     case maps:get(StreamRef, Requests, undefined) of
         {_, EndingTs, _} when NowTs > EndingTs ->
             _ = gun:cancel(GunPid, StreamRef),
-            _ = gun:await(GunPid, StreamRef, 0),
+            flush_stream(GunPid, StreamRef),
             NRequests = maps:remove(StreamRef, Requests),
             {noreply, State#state{requests = NRequests}};
         {From, _EndingTs, Acc} ->
@@ -218,7 +218,11 @@ handle_info({gun_response, _GunPid, _StreamRef, _IsFin, _Status, _Headers}, Stat
 
 handle_info({gun_error, _GunPid, StreamRef, Reason},
             State = #state{requests = Requests}) ->
+    NowTs = erlang:system_time(millisecond),
     case maps:get(StreamRef, Requests, undefined) of
+        {_, EndingTs, _} when NowTs > EndingTs ->
+            NRequests = maps:remove(StreamRef, Requests),
+            {noreply, State#state{requests = NRequests}};
         {From, _, _} ->
             gen_server:reply(From, {error, Reason}),
             NRequests = maps:remove(StreamRef, Requests),
@@ -232,9 +236,12 @@ handle_info({gun_up, GunPid, http2}, State = #state{gun_pid = GunPid}) ->
     {noreply, State};
 
 handle_info({gun_down, GunPid, http2, Reason, KilledStreams, _}, State = #state{gun_pid = GunPid, requests = Requests}) ->
+    NowTs = erlang:system_time(millisecond),
     NRequests = lists:foldl(fun(StreamRef, Acc) ->
                                 case maps:take(StreamRef, Acc) of
                                     error -> Acc;
+                                    {{_, EndingTs, _}, NAcc} when NowTs > EndingTs ->
+                                        NAcc;
                                     {{From, _, _}, NAcc} ->
                                         gen_server:reply(From, {error, Reason}),
                                         NAcc
@@ -245,7 +252,10 @@ handle_info({gun_down, GunPid, http2, Reason, KilledStreams, _}, State = #state{
 handle_info({'DOWN', MRef, process, GunPid, Reason},
             State = #state{mref = MRef, gun_pid = GunPid, requests = Requests}) ->
     logger:warning("Gun process ~p down, reason: ~p~n", [GunPid, Reason]),
-    lists:foreach(fun({_, {From, _, _}}) ->
+    NowTs = erlang:system_time(millisecond),
+    lists:foreach(fun({_, {_, EndingTs, _}}) when NowTs > EndingTs ->
+                      ok;
+                     ({_, {From, _, _}}) ->
                       gen_server:reply(From, {error, Reason})
                   end, maps:to_list(Requests)),
     {noreply, State#state{gun_pid = undefined, requests = #{}}};
@@ -286,3 +296,15 @@ call(ChannPid, Msg, Timeout) ->
 
 pick(ChannName) ->
     gproc_pool:pick_worker(ChannName, self()).
+
+flush_stream(GunPid, StreamRef) ->
+    receive
+        {gun_response, GunPid, StreamRef, _, _, _} ->
+            ok;
+        {gun_data, GunPid, StreamRef, _, _} ->
+            ok;
+        {gun_error, GunPid, StreamRef, _} ->
+            ok
+	after 0 ->
+		ok
+	end.
