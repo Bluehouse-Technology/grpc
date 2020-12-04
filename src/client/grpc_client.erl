@@ -300,11 +300,11 @@ pick(ChannName) ->
 flush_stream(GunPid, StreamRef) ->
     receive
         {gun_response, GunPid, StreamRef, _, _, _} ->
-            ok;
+            flush_stream(GunPid, StreamRef);
         {gun_data, GunPid, StreamRef, _, _} ->
-            ok;
+            flush_stream(GunPid, StreamRef);
         {gun_error, GunPid, StreamRef, _} ->
-            ok
+            flush_stream(GunPid, StreamRef)
 	after 0 ->
 		ok
 	end.
