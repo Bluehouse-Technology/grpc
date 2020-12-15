@@ -68,9 +68,10 @@
 
 -export_type([request/0, response/0, def/0, options/0, encoding/0]).
 
--define(headers(Encoding, MessageType, MD),
+-define(headers(Encoding, MessageType, Timeout, MD),
         [{<<"grpc-encoding">>, Encoding},
          {<<"grpc-message-type">>, MessageType},
+         {<<"grpc-timeout">>, ms2timeout(Timeout)},
          {<<"content-type">>, <<"application/grpc+proto">>},
          {<<"user-agent">>, <<"grpc-erlang/0.1.0">>},
          {<<"te">>, <<"trailers">>} | MD]).
@@ -148,10 +149,11 @@ handle_call({unary, #{path := Path,
                       message_type := MessageType}, Bytes, Metadata, Options},
             From,
             State = #state{gun_pid = GunPid, requests = Requests, encoding = Encoding}) ->
-    Headers = ?headers(atom_to_binary(Encoding, utf8), MessageType, Metadata),
+    Timeout = maps:get(timeout, Options, ?UNARY_TIMEOUT),
+    Headers = ?headers(atom_to_binary(Encoding, utf8), MessageType, Timeout, Metadata),
     Body = grpc_frame:encode(Encoding, Bytes),
     StreamRef = gun:post(GunPid, Path, Headers, Body),
-    EndingTs = erlang:system_time(millisecond) + maps:get(timeout, Options, ?UNARY_TIMEOUT),
+    EndingTs = erlang:system_time(millisecond) + Timeout,
     NState = State#state{requests = Requests#{StreamRef => {From, EndingTs, <<>>}}},
     {noreply, NState};
 
@@ -310,3 +312,8 @@ flush_stream(GunPid, StreamRef) ->
 	after 0 ->
 		ok
 	end.
+
+ms2timeout(Ms) when Ms > 1000 ->
+    io_lib:format("~wS", [Ms div 1000]);
+ms2timeout(Ms) ->
+    io_lib:format("~wm", [Ms div 1000]).
