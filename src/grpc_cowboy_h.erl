@@ -64,8 +64,8 @@ do_init(Req, Options) ->
                     try
                         loop(NSt)
                     catch T:R:Stk ->
-                        logger:error("Stream process crashed: ~p, ~p, stacktrace: ~p~n",
-                                    [T, R, Stk]),
+                        ?LOG(error, "Stream process crashed: ~p, ~p, stacktrace: ~p~n",
+                                     [T, R, Stk]),
                         shutdown(?GRPC_STATUS_INTERNAL, <<"Internal error">>, St)
                     end;
                 _ ->
@@ -187,8 +187,8 @@ handle_in(Frame, St) ->
                 {shutdown, Code, <<"">>}
         end
     catch T:R:Stk ->
-        logger:error("Handle frame crashed: {~p, ~p} stacktrace: ~0p~n",
-                    [T, R, Stk]),
+        ?LOG(error, "Handle frame crashed: {~p, ~p} stacktrace: ~0p~n",
+                     [T, R, Stk]),
         {shutdown, ?GRPC_STATUS_INTERNAL, <<"RPC Execution Crashed">>}
     end.
 
@@ -227,7 +227,7 @@ cowboy_recv(Req, Len, Acc) ->
         {more, Bytes, NReq} ->
             cowboy_recv(NReq, Len - byte_size(Bytes), <<Acc/binary, Bytes/binary>>);
         {'EXIT', {Reason, _Stk}} ->
-            logger:error("Read body occuring an error: ~p, stacktrace: ~p~n", [Reason, _Stk]),
+            ?LOG(error, "Read body occuring an error: ~p, stacktrace: ~p~n", [Reason, _Stk]),
             {error, Reason}
     end.
 

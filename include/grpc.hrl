@@ -39,4 +39,13 @@
 
 -type grpc_message() :: binary().
 
+%% Logger
+
+-define(LOG(Level, Format), ?LOG(Level, Format, [])).
+
+-define(LOG(Level, Format, Args),
+        begin
+          (logger:log(Level,#{},#{report_cb => fun(_) -> {(Format), (Args)} end}))
+        end).
+
 -endif.

@@ -109,9 +109,10 @@ unary(Def = #{marshal := Marshal,
             ChannName = maps:get(channel, Options),
             Timeout = maps:get(timeout, Options, ?UNARY_TIMEOUT),
             Bytes = Marshal(Input),
-            case call(pick(ChannName),
-                      {unary, Def, Bytes, maps:to_list(Metadata), Options},
-                      Timeout + 1000) of
+            case call( pick(ChannName)
+                     , {unary, Def, Bytes, maps:to_list(Metadata), Options}
+                     , Timeout + 1000
+                     ) of
                 {ok, Output, ReplyMetadata} ->
                     {ok, Unmarshal(Output), ReplyMetadata};
                 {error, Reason} ->
@@ -185,7 +186,7 @@ handle_info({gun_data, GunPid, StreamRef, IsFin, Data},
                     {noreply, State#state{requests = NRequests}}
             end;
         _ ->
-            logger:error("gun_data Unknown stream ref: ~p~n", [StreamRef]),
+            ?LOG(error, "gun_data Unknown stream ref: ~p~n", [StreamRef]),
             {noreply, State}
     end;
 
@@ -211,7 +212,7 @@ handle_info({gun_trailers, GunPid, StreamRef, Trailers},
             NRequests = maps:remove(StreamRef, Requests),
             {noreply, State#state{requests = NRequests}};
         _ ->
-            logger:error("gun_trailers Unknown stream ref: ~p~n", [StreamRef]),
+            ?LOG(error, "gun_trailers Unknown stream ref: ~p~n", [StreamRef]),
             {noreply, State}
     end;
 
@@ -230,7 +231,7 @@ handle_info({gun_error, _GunPid, StreamRef, Reason},
             NRequests = maps:remove(StreamRef, Requests),
             {noreply, State#state{requests = NRequests}};
         _ ->
-            logger:error("gun_error Unknown stream ref: ~p~n", [StreamRef]),
+            ?LOG(error, "gun_error Unknown stream ref: ~p~n", [StreamRef]),
             {noreply, State}
     end;
 
@@ -253,7 +254,7 @@ handle_info({gun_down, GunPid, http2, Reason, KilledStreams, _}, State = #state{
 
 handle_info({'DOWN', MRef, process, GunPid, Reason},
             State = #state{mref = MRef, gun_pid = GunPid, requests = Requests}) ->
-    logger:warning("Gun process ~p down, reason: ~p~n", [GunPid, Reason]),
+    ?LOG(warning, "Gun process ~p down, reason: ~p~n", [GunPid, Reason]),
     NowTs = erlang:system_time(millisecond),
     lists:foreach(fun({_, {_, EndingTs, _}}) when NowTs > EndingTs ->
                       ok;
@@ -263,7 +264,7 @@ handle_info({'DOWN', MRef, process, GunPid, Reason},
     {noreply, State#state{gun_pid = undefined, requests = #{}}};
 
 handle_info(Info, State) ->
-    logger:warning("Unexpected info: ~p~n", [Info]),
+    ?LOG(warning, "Unexpected info: ~p~n", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{pool = Pool, id = Id}) ->
@@ -316,4 +317,4 @@ flush_stream(GunPid, StreamRef) ->
 ms2timeout(Ms) when Ms > 1000 ->
     io_lib:format("~wS", [Ms div 1000]);
 ms2timeout(Ms) ->
-    io_lib:format("~wm", [Ms div 1000]).
+    io_lib:format("~wm", [Ms]).
