@@ -86,7 +86,7 @@ shot_once_func(Size) ->
             Err ->
                 ?LOG("1Send request failed: ~p~n", [Err]),
                 error
-        catch Type:Name:Stk ->
+        catch Type:Name:_Stk ->
                 ?LOG("Send request failed: ~p:~p:~n", [Type, element(1,Name)]),
                 error
         end
@@ -127,7 +127,7 @@ shot_one_case({Pcnt, Rcnt, Rsize}) ->
                 {_, 0} -> 1;
                 {_, T2} -> T2
             end,
-    ?LOG("--   CPU time: ~s, Procs time: ~s\n", [format_ts(Time1), format_ts(Time2)]),
+    ?LOG("--   Run time: ~s, Wall Clock time: ~s\n", [format_ts(Time1), format_ts(Time2)]),
     ?LOG("--        TPS: ~s/s (~s/s) \n", [format_cnt(1000*RequestCnt/Time1), format_cnt(1000*RequestCnt/Time2)]),
     ?LOG("-- Throughput: ~s/s (~s/s) \n", [format_byte(1000*Throughput/Time1), format_byte(1000*Throughput/Time2)]),
     ?LOG("===============================================\n"),

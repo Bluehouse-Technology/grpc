@@ -10,15 +10,13 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - uses: ilammy/msvc-dev-cmd@v1
+    - uses: gleam-lang/setup-erlang@v1.1.0
+      id: install_erlang
+      with:
+        otp-version: 22.3
     - name: Run tests
       run: |
-        set-executionpolicy remotesigned -s cu
-        iex (new-object net.webclient).downloadstring('https://get.scoop.sh')
-        $env:path + ";" + $env:USERPROFILE + "\scoop\shims"
-        scoop bucket add extras https://github.com/lukesampson/scoop-extras.git
-        scoop update
-        scoop install sudo curl 7zip vcredist2013
-        scoop install erlang@22.3
+        $env:PATH = "${{ steps.install_erlang.outputs.erlpath }}\bin;$env:PATH"
 
         $rebar3 = $env:USERPROFILE + "\rebar3"
         (New-Object System.Net.WebClient).DownloadFile('https://s3.amazonaws.com/rebar3/rebar3', $rebar3)
