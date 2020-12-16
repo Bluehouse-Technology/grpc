@@ -47,5 +47,8 @@
         begin
           (logger:log(Level,#{},#{report_cb => fun(_) -> {(Format), (Args)} end}))
         end).
+%         begin
+%             (io:format(standard_error, Format ++ "\n", Args))
+%         end).
 
 -endif.

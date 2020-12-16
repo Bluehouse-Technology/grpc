@@ -43,8 +43,9 @@ init_per_group(GrpName, Cfg) ->
     Cert = filename:join([TestDir, "certs", "cert.pem"]),
     Key = filename:join([TestDir, "certs", "key.pem"]),
 
-    Services = #{protos => [ct_greeter_pb],
-                 services => #{'Greeter' => greeter_svr}
+    Services = #{protos => [ct_greeter_pb, ct_route_guide_pb],
+                 services => #{'Greeter' => greeter_svr,
+                               'RouteGuide' => route_guide_svr}
                 },
     Options = case GrpName of
                   https ->
@@ -61,11 +62,11 @@ init_per_group(GrpName, Cfg) ->
                     _ -> #{}
                 end,
     SvrAddr = case GrpName of
-                  https -> "https://127.0.0.1:10023";
-                  _ -> "http://127.0.0.1:10023"
+                  https -> "https://127.0.0.1:10000";
+                  _ -> "http://127.0.0.1:10000"
               end,
 
-    {ok, _} = grpc:start_server(?SERVER_NAME, 10023, Services, Options),
+    {ok, _} = grpc:start_server(?SERVER_NAME, 10000, Services, Options),
     {ok, _} = grpc_client_sup:create_channel_pool(?CHANN_NAME, SvrAddr, ClientOps),
     Cfg.
 

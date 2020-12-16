@@ -22,4 +22,7 @@ rebar3.crashdump
 src/ct_greeter_pb.erl
 src/greeter_bhvr.erl
 src/greeter_client.erl
+src/ct_route_guide_pb.erl
+src/routeguide_route_guide_bhvr.erl
+src/routeguide_route_guide_client.erl
 .rebar3/

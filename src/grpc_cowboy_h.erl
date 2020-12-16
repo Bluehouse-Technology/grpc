@@ -216,16 +216,15 @@ maybe_send_headers_first(St) ->
 %%--------------------------------------------------------------------
 
 cowboy_recv(Req) ->
-    Len = cowboy_req:body_length(Req),
-    cowboy_recv(Req, Len, <<>>).
+    cowboy_recv(Req, <<>>).
 
-cowboy_recv(Req, Len, Acc) ->
+cowboy_recv(Req, Acc) ->
     %% FIXME: Streaming??
-    case catch cowboy_req:read_body(Req, #{length => Len}) of
+    case catch cowboy_req:read_body(Req) of
         {ok, Bytes, NReq} ->
             {ok, <<Acc/binary, Bytes/binary>>, NReq};
         {more, Bytes, NReq} ->
-            cowboy_recv(NReq, Len - byte_size(Bytes), <<Acc/binary, Bytes/binary>>);
+            cowboy_recv(NReq, <<Acc/binary, Bytes/binary>>);
         {'EXIT', {Reason, _Stk}} ->
             ?LOG(error, "Read body occuring an error: ~p, stacktrace: ~p~n", [Reason, _Stk]),
             {error, Reason}

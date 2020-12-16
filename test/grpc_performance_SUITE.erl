@@ -39,8 +39,8 @@ init_per_suite(Cfg) ->
     Services = #{protos => [ct_greeter_pb],
                  services => #{'Greeter' => greeter_svr}
                 },
-    {ok, _} = grpc:start_server(?SERVER_NAME, 10023, Services),
-    {ok, _} = grpc_client_sup:create_channel_pool(?CHANN_NAME, "http://127.0.0.1:10023", #{}),
+    {ok, _} = grpc:start_server(?SERVER_NAME, 10000, Services),
+    {ok, _} = grpc_client_sup:create_channel_pool(?CHANN_NAME, "http://127.0.0.1:10000", #{}),
     Cfg.
 
 end_per_suite(_Cfg) ->
@@ -53,7 +53,7 @@ end_per_suite(_Cfg) ->
 
 matrix() ->
     %% Procs count, Req/procs, Req size
-    [ {2, 2, 10}
+    [ {1, 2, 10}
     , {100, 100, 1024}
     , {1000, 100, 1024}
 %    , {100, 10000, 1024}    %% 1000MB
