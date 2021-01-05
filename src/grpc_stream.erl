@@ -14,9 +14,18 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(grpc_cowboy_h).
+%% The gRPC stream
+-module(grpc_stream).
+
+-behavior(cowboy_handler).
 
 -include("grpc.hrl").
+
+%% APIs
+-export([ recv/1
+        , recv/2
+        , reply/2
+        ]).
 
 %% cowboy callbacks
 -export([init/2]).
@@ -26,18 +35,62 @@
         , handle_out/3
         ]).
 
+-type stream() :: #{ req           := cowboy_req:req()
+                   , rest          := binary()
+                   , metadata      := map()
+                   , encoding      := grpc_frame:encoding()
+                   , compression   := grpc_frame:compression()
+                   , decoder       := function()
+                   , encoder       := function()
+                   , handler       := {atom(), atom()}
+                   , is_unary      := boolean()
+                   , input_stream  := boolean()
+                   , output_stream := boolean()
+                   , client_info   := map()
+                   }.
+
+%%--------------------------------------------------------------------
+%% APIs
+%%--------------------------------------------------------------------
+
+recv(St) ->
+    recv(St, 5000).
+
+-spec recv(stream(), timeout()) -> {more | eos, [map()], stream()}.
+recv(St = #{req         := Req,
+            rest        := Rest,
+            decoder     := Decoder,
+            compression := Compression}, Timeout) ->
+    {More, Bytes, NReq} = cowboy_req:read_body(Req, #{length => 5, period => Timeout}),
+    {NRest, Frames} = grpc_frame:split(<<Rest/binary, Bytes/binary>>, Compression),
+
+    NSt = St#{rest => NRest, req => NReq},
+    Requests = lists:map(Decoder, Frames),
+    case More of
+        more -> {more, Requests, NSt};
+        _ -> {eos, Requests, NSt}
+    end.
+
+-spec reply(stream(), map() | list(map())) -> ok.
+
+reply(St, Resp) when is_map(Resp) ->
+    reply(St, [Resp]);
+
+reply(#{req         := Req,
+        encoder     := Encoder,
+        compression := Compression}, Resps) ->
+    IoData = lists:map(fun(F) ->
+                grpc_frame:encode(Compression, F)
+             end, lists:map(Encoder, Resps)),
+    ok = cowboy_req:stream_body(IoData, nofin, Req).
+
+%%--------------------------------------------------------------------
+%% Cowboy handler callback
+
 init(Req, Options) ->
-    do_init(Req, Options).
-
-%%--------------------------------------------------------------------
-%% gRPC stream loop
-%%--------------------------------------------------------------------
-
-do_init(Req, Options) ->
     St = do_init_state(
            #{req => Req,
              rest => <<>>,
-             headers_sent => false,
              metadata => #{},
              encoding => identity,
              compression => maps:get(compression, Options, identity),
@@ -57,12 +110,14 @@ do_init(Req, Options) ->
                             decoder => decoder_func(Defs),
                             encoder => encoder_func(Defs),
                             handler => {maps:get(handler, Defs), ReqRpc1},
+                            is_unary => not maps:get(input_stream, Defs)
+                                        andalso not maps:get(output_stream, Defs),
                             input_stream => maps:get(input_stream, Defs),
                             output_stream => maps:get(output_stream, Defs),
                             client_info => ClientInfo
                            },
                     try
-                        loop(NSt)
+                        before_loop(send_headers_first(NSt))
                     catch T:R:Stk ->
                         ?LOG(error, "Stream process crashed: ~p, ~p, stacktrace: ~p~n",
                                      [T, R, Stk]),
@@ -114,7 +169,7 @@ encoder_func(#{pb := Pb, output := OutputName}) ->
         Pb:encode_msg(Msg, OutputName)
     end.
 
-loop(St) ->
+before_loop(St = #{is_unary := true}) ->
     Req = maps:get(req, St),
     case cowboy_recv(Req) of
         {ok, Bytes, NReq} ->
@@ -122,18 +177,30 @@ loop(St) ->
             Compression = maps:get(compression, St),
             {NRest, Frames} = grpc_frame:split(<<Rest/binary, Bytes/binary>>, Compression),
             InEvnts = [{handle_in, [Frame]} || Frame <- Frames],
-            events(InEvnts, St#{rest => NRest, req => NReq});
+            NSt = events(InEvnts, St#{rest => NRest, req => NReq}),
+            shutdown(?GRPC_STATUS_OK, <<"">>, NSt);
         {error, _Reason} ->
             shutdown(?GRPC_STATUS_INTERNAL, <<"Recv body">>, St)
+    end;
+
+before_loop(St = #{is_unary := false}) ->
+    try
+        Metadata = maps:get(metadata, St),
+        {Mod, Fun} = maps:get(handler, St),
+        case apply(Mod, Fun, [St, Metadata]) of
+            {ok, NSt} ->
+                shutdown(?GRPC_STATUS_OK, <<"">>, NSt);
+            {Code, Reason, NSt} ->
+                shutdown(Code, Reason, NSt)
+        end
+    catch T:R:Stk ->
+        ?LOG(error, "Handle frame crashed: {~p, ~p} stacktrace: ~0p~n",
+                     [T, R, Stk]),
+        shutdown(?GRPC_STATUS_INTERNAL, <<"RPC Execution Crashed">>, St)
     end.
 
 events([], St) ->
-    case maps:get(input_stream, St) of
-        true ->
-            loop(St);
-        _ ->
-            shutdown(?GRPC_STATUS_OK, <<"">>, St)
-    end;
+    St;
 events([{F, Args} | Events], St) ->
     case apply(?MODULE, F, Args ++ [St]) of
         {shutdown, Code, Message} ->
@@ -149,15 +216,8 @@ shutdown(Status, Message, St) ->
     Trailers = #{<<"grpc-status">> => Status,
                  <<"grpc-message">> => Message
                 },
-    NReq = case maps:get(headers_sent, St, false) of
-               false ->
-                   %% XXX: Only one "Trailers-Only" should be answered here.
-                   %%      Or send a HEADERS frame only?
-                   cowboy_send_header(headers(St), Req);
-               _ -> Req
-           end,
-    cowboy_send_trailers(Trailers, NReq),
-    {ok, NReq, []}.
+    cowboy_send_trailers(Trailers, Req),
+    {ok, Req, []}.
 
 headers(St) ->
     Meta = maps:get(metadata, St),
@@ -193,23 +253,18 @@ handle_in(Frame, St) ->
     end.
 
 handle_out(reply, Resp, St) ->
-    %% Streaming ??
     Encoder = maps:get(encoder, St),
     Compression = maps:get(compression, St),
     Bytes = grpc_frame:encode(Compression, Encoder(Resp)),
 
-    NSt = #{req := Req}  = maybe_send_headers_first(St),
+    #{req := Req} = St,
     _ = cowboy_send_body(Bytes, Req),
-    {ok, NSt}.
+    {ok, St}.
 
-maybe_send_headers_first(St) ->
-    case maps:get(headers_sent, St, false) of
-        true -> St;
-        _ ->
-            Req = maps:get(req, St),
-            NReq = cowboy_send_header(headers(St), Req),
-            St#{req => NReq, headers_sent => true}
-    end.
+send_headers_first(St) ->
+    Req = maps:get(req, St),
+    NReq = cowboy_send_header(headers(St), Req),
+    St#{req => NReq}.
 
 %%--------------------------------------------------------------------
 %% Cowboy layer funcs
@@ -220,7 +275,8 @@ cowboy_recv(Req) ->
 
 cowboy_recv(Req, Acc) ->
     %% FIXME: Streaming??
-    case catch cowboy_req:read_body(Req) of
+    %% Read at least 5 bytes
+    case catch cowboy_req:read_body(Req, #{length => 5}) of
         {ok, Bytes, NReq} ->
             {ok, <<Acc/binary, Bytes/binary>>, NReq};
         {more, Bytes, NReq} ->

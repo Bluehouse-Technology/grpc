@@ -22,6 +22,11 @@
         , stop_server/1
         ]).
 
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
+
 -type listen_on() :: {inet:ip_address(), inet:port_number()} | inet:port_number().
 -type services() :: #{protos := [module()],
                       services := #{ServiceName :: atom() := HandlerModule :: module()}
@@ -105,7 +110,7 @@ listen(Port) when is_integer(Port) ->
 
 start_http_server(Name, {Ip, Port}, Options, UserOptions) ->
     Dispatch = cowboy_router:compile(
-                 [{'_', [{"/:service/:method", grpc_cowboy_h, UserOptions}]}]
+                 [{'_', [{"/:service/:method", grpc_stream, UserOptions}]}]
                 ),
     ProtoOpts0 = #{env => #{dispatch => Dispatch},
                    protocols => [http2],

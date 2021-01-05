@@ -87,7 +87,6 @@ terminate(StreamID, Reason, #state{next=Next}) ->
 early_error(StreamID, Reason, PartialReq, Resp, Opts) ->
     cowboy_stream:early_error(StreamID, Reason, PartialReq, Resp, Opts).
 
-
 %%-----------------------------------------------------------------------------
 %% Internal functions
 %%-----------------------------------------------------------------------------

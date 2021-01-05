@@ -1,5 +1,5 @@
 {application, grpc,
- [{description, "An Erlang implementation of gRPC "},
+ [{description, "An Erlang implementation of gRPC"},
   {vsn, "git"},
   {registered, []},
   {mod, {grpc_app, []}},

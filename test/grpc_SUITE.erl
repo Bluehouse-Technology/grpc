@@ -25,6 +25,8 @@
 -define(SERVER_NAME, server).
 -define(CHANN_NAME, channel).
 
+-define(LOG(Fmt, Args), io:format(standard_error, Fmt, Args)).
+
 %%--------------------------------------------------------------------
 %% Setups
 %%--------------------------------------------------------------------
@@ -33,7 +35,7 @@ all() ->
     [{group, http}, {group, https}].
 
 groups() ->
-    Tests = [t_hello],
+    Tests = [t_hello, t_get_feature, t_list_features, t_record_route],
     [{http, Tests}, {https,Tests}].
 
 init_per_group(GrpName, Cfg) ->
@@ -45,7 +47,7 @@ init_per_group(GrpName, Cfg) ->
 
     Services = #{protos => [ct_greeter_pb, ct_route_guide_pb],
                  services => #{'Greeter' => greeter_svr,
-                               'RouteGuide' => route_guide_svr}
+                               'routeguide.RouteGuide' => route_guide_svr}
                 },
     Options = case GrpName of
                   https ->
@@ -79,5 +81,24 @@ end_per_group(_GrpName, _Cfg) ->
 %%--------------------------------------------------------------------
 
 t_hello(_) ->
-    ?assertMatch({ok, _, _}, greeter_client:say_hello(#{}, #{channel => ?CHANN_NAME})),
-    ok.
+    ?assertMatch({ok, _, _},
+                 greeter_client:say_hello(#{}, #{channel => ?CHANN_NAME})).
+
+t_get_feature(_) ->
+    ?assertMatch({ok, _, _},
+                 routeguide_route_guide_client:get_feature(#{}, #{}, #{channel => ?CHANN_NAME})).
+
+t_list_features(_) ->
+    Hdlr = #{incoming =>
+               fun(_StreamRef, Resps) ->
+                 ?LOG("Streaming incoming: ~0p~n", [Resps])
+               end},
+    {ok, Stream} = routeguide_route_guide_client:list_features(Hdlr, #{}, #{channel => ?CHANN_NAME}),
+    grpc_client:streaming(Stream, #{}, fin).
+
+t_record_route(_) ->
+    {ok, Stream} = routeguide_route_guide_client:record_route(#{}, #{}, #{channel => ?CHANN_NAME}),
+    grpc_client:streaming(Stream, #{latitude => 1, longitude => 2}),
+    grpc_client:streaming(Stream, #{latitude => 2, longitude => 3}),
+    timer:sleep(100),
+    grpc_client:streaming(Stream, #{latitude => 3, longitude => 4}, fin).

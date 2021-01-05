@@ -112,9 +112,11 @@
 
 -type client_pid() :: pid().
 
--type stream_handler() :: #{ created := {function(), list()}
-                           , incoming := {function(), list()}
-                           , closed := {function(), list()}
+-type callback_func() :: function() | {function(), list()}.
+
+-type stream_handler() :: #{ created := callback_func()
+                           , incoming := callback_func()
+                           , closed := callback_func()
                            }.
 
 -type grpcstream() :: #{client_pid := client_pid(),
@@ -400,7 +402,9 @@ stream_handle(Info, Stream) ->
 %%--------------------------------------------------------------------
 
 eval_stream_callback(Args0, {Fun, Args1}) ->
-    erlang:apply(Fun, Args0 ++ Args1).
+    erlang:apply(Fun, Args0 ++ Args1);
+eval_stream_callback(Args0, Fun) when is_function(Fun) ->
+    erlang:apply(Fun, Args0).
 
 do_connect(State = #state{server = {_, Host, Port}, gun_opts = GunOpts}) ->
     case gun:open(Host, Port, GunOpts) of
