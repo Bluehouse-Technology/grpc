@@ -40,18 +40,19 @@ list_features(Stream, _Md) ->
     {ok, NStream}.
 
 record_route(Stream, _Md) ->
-    LoopRecv = fun _Lp(St) ->
+    LoopRecv = fun _Lp(St, Acc) ->
         case grpc_stream:recv(St) of
             {more, Reqs, NSt} ->
                 ?LOG("~p: ~0p~n", [?FUNCTION_NAME, Reqs]),
-                _Lp(NSt);
+
+                _Lp(NSt, Acc ++ Reqs);
             {eos, Reqs, NSt} ->
                 ?LOG("~p: ~0p~n", [?FUNCTION_NAME, Reqs]),
-                NSt
+                {NSt, Acc ++ Reqs}
         end
     end,
-    NStream = LoopRecv(Stream),
-    grpc_stream:reply(NStream, #{}),
+    {NStream, Points} = LoopRecv(Stream, []),
+    grpc_stream:reply(NStream, #{point_count => length(Points)}),
     {ok, NStream}.
 
 route_chat(Stream, _Md) ->

@@ -35,7 +35,7 @@ all() ->
     [{group, http}, {group, https}].
 
 groups() ->
-    Tests = [t_hello, t_get_feature, t_list_features, t_record_route],
+    Tests = [t_say_hello, t_get_feature, t_list_features, t_record_route],
     [{http, Tests}, {https,Tests}].
 
 init_per_group(GrpName, Cfg) ->
@@ -80,21 +80,46 @@ end_per_group(_GrpName, _Cfg) ->
 %% Tests
 %%--------------------------------------------------------------------
 
-t_hello(_) ->
+t_say_hello(_) ->
     ?assertMatch({ok, _, _},
-                 greeter_client:say_hello(#{}, #{channel => ?CHANN_NAME})).
+                 greeter_client:say_hello(#{name => <<"Xiao Ming">>}, #{channel => ?CHANN_NAME})).
 
 t_get_feature(_) ->
+    Point = #{latitude => 1,
+              longitude => 1
+             },
     ?assertMatch({ok, _, _},
-                 routeguide_route_guide_client:get_feature(#{}, #{}, #{channel => ?CHANN_NAME})).
+                 routeguide_route_guide_client:get_feature(Point, #{channel => ?CHANN_NAME})).
 
 t_list_features(_) ->
     {ok, Stream} = routeguide_route_guide_client:list_features(#{}, #{channel => ?CHANN_NAME}),
-    grpc_client:streaming(Stream, #{}, fin).
+    grpc_client:streaming(Stream, #{}, fin),
+    LoopRecv = fun _Lp(Acc) ->
+                       {ok, Fs} = grpc_client:recv(Stream),
+                       case Acc ++ Fs of
+                           NAcc when length(NAcc) == 4 -> NAcc;
+                           NAcc ->
+                               _Lp(NAcc)
+                       end
+               end,
+    ?assertMatch([#{name := <<"City1">>},
+                  #{name := <<"City2">>},
+                  #{name := <<"City3">>},
+                  {eos,[{<<"grpc-message">>,<<>>},{<<"grpc-status">>,<<"0">>}]}], LoopRecv([])).
 
 t_record_route(_) ->
     {ok, Stream} = routeguide_route_guide_client:record_route(#{}, #{channel => ?CHANN_NAME}),
-    grpc_client:streaming(Stream, #{latitude => 1, longitude => 2}),
-    grpc_client:streaming(Stream, #{latitude => 2, longitude => 3}),
+    grpc_client:streaming(Stream, #{latitude => 1, longitude => 1}),
+    grpc_client:streaming(Stream, #{latitude => 2, longitude => 2}),
     timer:sleep(100),
-    grpc_client:streaming(Stream, #{latitude => 3, longitude => 4}, fin).
+    grpc_client:streaming(Stream, #{latitude => 3, longitude => 3}, fin),
+    LoopRecv = fun _Lp(Acc) ->
+                       {ok, Fs} = grpc_client:recv(Stream),
+                       case Acc ++ Fs of
+                           NAcc when length(NAcc) == 2 -> NAcc;
+                           NAcc ->
+                               _Lp(NAcc)
+                       end
+               end,
+    ?assertMatch([#{point_count := 3},
+                  {eos,[{<<"grpc-message">>,<<>>},{<<"grpc-status">>,<<"0">>}]}], LoopRecv([])).
