@@ -22,9 +22,11 @@
 
 %% APIs
 -export([ unary/4
-        , open_stream/4
+        , open_stream/3
         , streaming/2
         , streaming/3
+        , recv/1
+        , recv/2
         ]).
 
 %% APIs
@@ -37,10 +39,6 @@
         , handle_info/2
         , terminate/2
         , code_change/3
-        ]).
-
--export([ unary_handler_incoming/4
-        , unary_handler_closed/4
         ]).
 
 -record(state, { pool
@@ -57,11 +55,11 @@
 
 -type response() :: map().
 
--type encoding() :: identity | gzip | deflate | snappy.
+-type eos_msg() :: {eos, list()}.
 
 -type options() ::
         #{ channel => term()
-         , encoding => encoding()
+         , encoding => grpc_frame:encoding()
          , atom() => term()
          }.
 
@@ -76,11 +74,9 @@
 -type server() :: {http | https, string(), inet:port_number()}.
 
 -type grpc_opts() ::
-        #{ encoding => encoding()
+        #{ encoding => grpc_frame:encoding()
          , gun_opts => gun:opts()
          }.
-
--export_type([request/0, response/0, def/0, options/0, encoding/0]).
 
 -define(headers(Encoding, MessageType, Timeout, MD),
         [{<<"grpc-encoding">>, Encoding},
@@ -100,24 +96,15 @@
 
 -type stream_state() :: idle | open | closed.
 
--type stream() :: #{ st        := {LocalState :: stream_state(),
-                                   RemoteState :: stream_state()}
-                   , reply_to  := pid()
-                   , recvbuff  := binary()
-                   , endts     := non_neg_integer()
-                   , def       := def()
-                   , handlers  := stream_handler()
-                   , encoding  := encoding()
+-type stream() :: #{ st       := {LocalState :: stream_state(),
+                                  RemoteState :: stream_state()}
+                   , mqueue   := list()
+                   , hangs    := list()
+                   , recvbuff := binary()
+                   , encoding := grpc_frame:encoding()
                    }.
 
 -type client_pid() :: pid().
-
--type callback_func() :: function() | {function(), list()}.
-
--type stream_handler() :: #{ created := callback_func()
-                           , incoming := callback_func()
-                           , closed := callback_func()
-                           }.
 
 -type grpcstream() :: #{client_pid := client_pid(),
                         stream_ref := reference(),
@@ -139,50 +126,34 @@ start_link(Pool, Id, Server, Opts) when is_map(Opts)  ->
 
 -spec unary(def(), request(), grpc:metadata(), options())
     -> {ok, response(), grpc:metadata()}
+     %% TODO: Need tests
      | {error, {grpc_error, grpc_status(), grpc_message()}}
      | {error, term()}.
 %% @doc Unary function call
 unary(Def, Req, Metadata, Options) ->
     Timeout = maps:get(timeout, Options, ?UNARY_TIMEOUT),
-
-    Ref = erlang:make_ref(),
-    Handlers = #{incoming => {fun ?MODULE:unary_handler_incoming/4, [self(), Ref]},
-                 closed   => {fun ?MODULE:unary_handler_closed/4, [self(), Ref]}
-                },
     Unmarshal = maps:get(unmarshal, Def),
-    case open_stream(Def, Handlers, Metadata, Options) of
+    case open_stream(Def, Metadata, Options) of
         {ok, GStream} ->
-            case streaming(GStream, Req, fin) of
-                ok ->
-                    receive
-                        {unary_resp, Ref, Frame} ->
-                            receive
-                                {unary_trailers, Ref, Trailers} ->
-                                    {ok, Unmarshal(Frame), Trailers}
-                            after Timeout ->
-                                 {error, timeout}
-                            end
-                    after Timeout ->
-                        {error, timeout}
-                    end;
-                E -> E
+            _ = streaming(GStream, Req, fin),
+            case recv(GStream, Timeout) of
+                {ok, [Resp]} ->
+                    {ok, [{eos, Trailers}]} = recv(GStream, Timeout),
+                    {ok, Resp, Trailers};
+                {ok, [Frame, Trailers]} ->
+                    {ok, Unmarshal(Frame), Trailers};
+                {error, _} = E -> E
             end;
         E -> E
     end.
 
-unary_handler_incoming(_StreamRef, [Frame], Parent, Ref) ->
-    Parent ! {unary_resp, Ref, Frame}.
-
-unary_handler_closed(_StreamRef, Trailers, Parent, Ref) ->
-    Parent ! {unary_trailers, Ref, Trailers}.
-
--spec open_stream(def(), stream_handler(), grpc:metadata(), options())
+-spec open_stream(def(), grpc:metadata(), options())
     -> {ok, grpcstream()}
      | {error, term()}.
 
-open_stream(Def, Handler, Metadata, Options) ->
+open_stream(Def, Metadata, Options) ->
     ClientPid = pick(maps:get(channel, Options, undefined)),
-    case call(ClientPid, {open_stream, Def, Handler, Metadata, Options}) of
+    case call(ClientPid, {open_stream, Def, Metadata, Options}) of
         {ok, StreamRef} ->
             {ok, #{stream_ref => StreamRef, client_pid => ClientPid, def => Def}};
         {error, _} = Error -> Error
@@ -202,6 +173,29 @@ streaming(_GStream = #{
     case call(ClientPid, {streaming, StreamRef, Bytes, IsFin}) of
         ok -> ok;
         {error, R} -> error(R)
+    end.
+
+-spec recv(grpcstream())
+    -> {ok, [response() | eos_msg()]}
+     | {error, term()}.
+recv(GStream) ->
+    recv(GStream, 5000).
+
+-spec recv(grpcstream(), timeout())
+    -> {ok, [response() | eos_msg()]}
+     | {error, term()}.
+recv(#{def        := Def,
+       client_pid := ClientPid,
+       stream_ref := StreamRef}, Timeout) ->
+    Unmarshal = maps:get(unmarshal, Def),
+    Endts = erlang:system_time(millisecond) + Timeout,
+    case call(ClientPid, {read, StreamRef, Endts}) of
+        {error, _} = E -> E;
+        {IsMore, Frames} ->
+            Msgs = lists:map(fun({eos, Trailers}) -> {eos, Trailers};
+                         (Bin) -> Unmarshal(Bin)
+                   end, Frames),
+            {IsMore, Msgs}
     end.
 
 %%--------------------------------------------------------------------
@@ -230,24 +224,18 @@ handle_call(Req, From, State = #state{gun_pid = undefined}) ->
             handle_call(Req, From, NState)
     end;
 
-handle_call({open_stream, Def = #{
-                            path := Path,
+handle_call({open_stream, #{path := Path,
                             message_type := MessageType
-                          }, Handlers, Metadata, Options},
-            From,
+                           }, Metadata, Options},
+            _From,
             State = #state{gun_pid = GunPid, streams = Streams, encoding = Encoding}) ->
     Timeout = maps:get(timeout, Options, ?UNARY_TIMEOUT),
     Headers = ?headers(atom_to_binary(Encoding, utf8), MessageType, Timeout, Metadata),
     StreamRef = gun:post(GunPid, Path, Headers),
-    EndingTs = erlang:system_time(millisecond) + Timeout,
-
-    Stream = #{type => stream,
-               st => {open, idle},
-               reply_to => From,
+    Stream = #{st       => {open, idle},
+               mqueue   => [],
+               hangs    => [],
                recvbuff => <<>>,
-               endts => EndingTs,
-               def => Def,
-               handlers => Handlers,
                encoding => Encoding
               },
     NState = State#state{streams = Streams#{StreamRef => Stream}},
@@ -272,8 +260,21 @@ handle_call(_Req = {streaming, StreamRef, Bytes, IsFin},
         undefined ->
             {reply, {error, not_found}, State};
         _S ->
-            ?LOG(error, "Bad stream state: ~p, ignore streaming request: ~p", [_S, _Req]),
             {reply, {error, bad_stream}, State}
+    end;
+
+handle_call(_Req = {read, StreamRef, Endts},
+            From,
+            State = #state{streams = Streams}) ->
+    case maps:get(StreamRef, Streams, undefined) of
+        undefined ->
+            {reply, {error, not_found}, State};
+        Stream ->
+            handle_stream_handle_result(
+              stream_handle({read, From, StreamRef, Endts}, Stream),
+              StreamRef,
+              Streams,
+              State)
     end;
 
 handle_call(_Request, _From, State) ->
@@ -287,21 +288,24 @@ handle_info({gun_up, GunPid, http2}, State = #state{gun_pid = GunPid}) ->
 
 handle_info({gun_down, GunPid, http2, Reason, KilledStreamRefs, _},
             State = #state{gun_pid = GunPid, streams = Streams}) ->
-    NowTs = erlang:system_time(millisecond),
+    Nowts = erlang:system_time(millisecond),
     %% Reply killed streams error
-    _ = maps:fold(fun(_, #{reply_to := From, endts := EndingTs}, _Acc) ->
-        NowTs =< EndingTs andalso
-          gen_server:reply(From, {error, Reason})
+    _ = maps:fold(fun(_, #{hangs := Hangs}, _Acc) ->
+        lists:foreach(fun({From, Endts}) ->
+            Endts > Nowts andalso
+              gen_server:reply(From, {error, {connection_down, Reason}})
+        end, Hangs)
     end, [], maps:with(KilledStreamRefs, Streams)),
     {noreply, State#state{streams = maps:without(KilledStreamRefs, Streams)}};
 
 handle_info({'DOWN', MRef, process, GunPid, Reason},
             State = #state{mref = MRef, gun_pid = GunPid, streams = Streams}) ->
-    ?LOG(warning, "[gRPC Client] Connection process ~p down, reason: ~p~n", [GunPid, Reason]),
-    NowTs = erlang:system_time(millisecond),
-    _ = maps:fold(fun(_, #{reply_to := From, endts := EndingTs}, _Acc) ->
-        NowTs =< EndingTs andalso
-          gen_server:reply(From, {error, Reason})
+    Nowts = erlang:system_time(millisecond),
+    _ = maps:fold(fun(_, #{hangs := Hangs}, _Acc) ->
+        lists:foreach(fun({From, Endts}) ->
+            Endts > Nowts andalso
+              gen_server:reply(From, {error, {connection_down, Reason}})
+        end, Hangs)
     end, [], Streams),
     {noreply, State#state{gun_pid = undefined, streams = #{}}};
 
@@ -315,18 +319,11 @@ handle_info(Info, State = #state{streams = Streams}) when is_tuple(Info) ->
                     ?LOG(warning, "[gRPC Client] Unknown stream ref: ~0p, event: ~0p", [StreamRef, Info]),
                     {noreply, State};
                 Stream ->
-                    NStreams =
-                        case stream_handle(Info, Stream) of
-                            {shutdown, normal, _Stream} ->
-                                maps:remove(StreamRef, Streams);
-                            {shutdown, Reason, Stream} ->
-                                ?LOG(error, "[gRPC Client] Stream ~0p shutdown for ~0p", [Stream, Reason]),
-                                maps:remove(StreamRef, Streams);
-                            {ok, NStream} ->
-                                maps:put(StreamRef, NStream, Streams);
-                            ok -> Streams
-                        end,
-                   {noreply, State#state{streams = NStreams}}
+                    handle_stream_handle_result(
+                      stream_handle(Info, Stream),
+                      StreamRef,
+                      Streams,
+                      State)
             end;
         _ ->
             ?LOG(warning, "[gRPC Client] Unexpected info: ~p~n", [Info]),
@@ -340,55 +337,90 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %%--------------------------------------------------------------------
+%% Handle stream handle
+
+handle_stream_handle_result(ok, _StreamRef, Streams, State) ->
+    {noreply, State#state{streams = Streams}};
+handle_stream_handle_result({ok, Stream}, StreamRef, Streams, State) ->
+    {noreply, State#state{streams = Streams#{StreamRef => Stream}}};
+handle_stream_handle_result({ok, Events, Stream}, StreamRef, Streams, State) ->
+    _ = run_events(Events),
+    {noreply, State#state{streams = Streams#{StreamRef => Stream}}};
+handle_stream_handle_result({shutdown, _Reason, _Stream}, StreamRef, Streams, State) ->
+    _Reason /= normal andalso
+        ?LOG(error, "[gRPC Client] Stream shutdown reason: ~p, stream: ~s",
+             [_Reason, format_stream(_Stream)]),
+    {noreply, State#state{streams = maps:remove(StreamRef, Streams)}};
+handle_stream_handle_result({shutdown, _Reason, Events, _Stream}, StreamRef, Streams, State) ->
+    _Reason /= normal andalso
+        ?LOG(error, "[gRPC Client] Stream shutdown reason: ~p, stream: ~s",
+             [_Reason, format_stream(_Stream)]),
+    _ = run_events(Events),
+    {noreply, State#state{streams = maps:remove(StreamRef, Streams)}}.
+
+run_events([]) ->
+    ok;
+run_events([{reply, From, Msg}|Es]) ->
+    gen_server:reply(From, Msg),
+    run_events(Es).
+
+%%--------------------------------------------------------------------
 %% Streams handle
 %%--------------------------------------------------------------------
 
-stream_handle({gun_response, _GunPid, StreamRef, nofin, Status, Headers},
-              Stream = #{st := {_LS, idle}, handlers := Handlers}) ->
-    case maps:get(created, Handlers, undefined) of
-        undefined -> ok;
-        Cbfun ->
-            eval_stream_callback([StreamRef, Status, Headers], Cbfun)
-    end,
+%% api calls
+
+stream_handle({read, From, _StreamRef, EndTs},
+             Stream = #{mqueue := [], hangs := Hangs}) ->
+    {ok, Stream#{hangs => [{From, EndTs}|Hangs]}};
+
+stream_handle({read, From, _StreamRef, _EndTs},
+              Stream = #{st := {_LS, open}, mqueue := MQueue}) when MQueue /= [] ->
+    {ok, [{reply, From, {ok, MQueue}}], Stream#{mqueue => []}};
+
+stream_handle({read, From, _StreamRef, _EndTs},
+              Stream = #{st := {closed, closed}, mqueue := MQueue}) ->
+    {shutdown, normal, [{reply, From, {ok, MQueue}}], Stream#{mqueue => []}};
+
+%% gun msgs
+
+stream_handle({gun_response, _GunPid, _StreamRef, nofin, _Status, _Headers},
+              Stream = #{st := {_LS, idle}}) ->
+    %% TODO: error handling?
     {ok, Stream#{st => {_LS, open}}};
 
-stream_handle({gun_trailers, _GunPid, StreamRef, Trailers},
-              Stream = #{st := {_LS, open}, handlers := Handlers}) ->
-    case maps:get(closed, Handlers, undefined) of
-        undefined -> ok;
-        Cbfun ->
-            eval_stream_callback([StreamRef, Trailers], Cbfun)
-    end,
-    case _LS == closed of
-        true ->
-            {shutdown, normal, Stream#{st => {_LS, closed}}};
-        _ ->
-            {ok, Stream#{st => {_LS, closed}}}
-    end;
+stream_handle({gun_trailers, _GunPid, _StreamRef, Trailers},
+              Stream = #{st := {_LS, open}}) ->
+    handle_remote_closed(Trailers, Stream);
 
-stream_handle({gun_data, _GunPid, StreamRef, IsFin, Data},
+stream_handle({gun_data, _GunPid, _StreamRef, nofin, Data},
               Stream = #{st := {_LS, open},
-                         handlers := Handlers,
                          recvbuff := Acc,
                          encoding := Encoding}) ->
     NData = <<Acc/binary, Data/binary>>,
-    {Rest, Frames} = grpc_frame:split(NData, Encoding),
-    case Frames /= [] andalso maps:get(incoming, Handlers, undefined) of
-        false -> ok;
-        undefined -> ok;
-        Cbfun ->
-            eval_stream_callback([StreamRef, Frames], Cbfun)
-    end,
-    case IsFin of
-        nofin ->
+    case grpc_frame:split(NData, Encoding) of
+        {Rest, []} ->
             {ok, Stream#{recvbuff => Rest}};
-        fin ->
-            case maps:get(closed, Handlers, undefined) of
-                undefined -> ok;
-                Cbfun2 ->
-                    eval_stream_callback([StreamRef, []], Cbfun2)
-            end,
-            {shutdown, normal, Stream#{st => {_LS, closed}}}
+        {Rest, Frames} ->
+            case clean_hangs(Stream#{recvbuff => Rest}) of
+                NStream = #{hangs := [], mqueue := MQueue} ->
+                    {ok, NStream#{mqueue => MQueue ++ Frames}};
+                NStream = #{hangs := [{From, _}|NHangs], mqueue := MQueue} ->
+                    {ok, [{reply, From, {ok, MQueue ++ Frames}}], NStream#{hangs => NHangs}}
+            end
+    end;
+
+stream_handle({gun_data, _GunPid, _StreamRef, fin, Data},
+               Stream = #{st := {_LS, open},
+                         recvbuff := Acc,
+                         encoding := Encoding}) ->
+    NData = <<Acc/binary, Data/binary>>,
+    case grpc_frame:split(NData, Encoding) of
+        {<<>>, []} ->
+            handle_remote_closed([], Stream);
+        {<<>>, Frames} ->
+            MQueue = maps:get(mqueue, Stream),
+            handle_remote_closed([], Stream#{recvbuff => <<>>, mqueue => MQueue ++ Frames})
     end;
 
 stream_handle({gun_error, _GunPid, _StreamRef, Reason}, Stream) ->
@@ -397,14 +429,37 @@ stream_handle({gun_error, _GunPid, _StreamRef, Reason}, Stream) ->
 stream_handle(Info, Stream) ->
     ?LOG(error, "Unexecpted stream event: ~p, stream ~0p", [Info, Stream]).
 
+handle_remote_closed(Trailers, Stream = #{st := {closed, _}}) ->
+    case clean_hangs(Stream#{st => {closed, closed}}) of
+        NStream = #{hangs := [{From, _}|NHangs], mqueue := MQueue} ->
+            Events1 = [{reply, From, {ok, MQueue ++ [{eos, Trailers}]}}],
+            Events2 = lists:map(fun({F, _}) -> {reply, F, {error, closed}} end, NHangs),
+            {shutdown, normal, Events1 ++ Events2, NStream#{hangs => [], mqueue => []}};
+        NStream = #{hangs := [], mqueue := MQueue} ->
+            {ok, NStream#{mqueue => MQueue ++ [{eos, Trailers}],
+                          stopped => erlang:system_time(millisecond)}}
+    end;
+
+handle_remote_closed(Trailers, Stream = #{st := {Ls, _}}) ->
+    case clean_hangs(Stream#{st => {Ls, closed}}) of
+        NStream = #{hangs := [{From, _}|NHangs], mqueue := MQueue} ->
+            Events1 = [{reply, From, {ok, MQueue ++ [{eos, Trailers}]}}],
+            Events2 = lists:map(fun({F, _}) -> {reply, F, {error, closed}} end, NHangs),
+            {ok, Events1 ++ Events2, NStream#{hangs => [], mqueue => []}};
+        NStream = #{hangs := [], mqueue := MQueue} ->
+            {ok, NStream#{mqueue => MQueue ++ [{eos, Trailers}]}}
+    end.
+
+clean_hangs(Stream = #{hangs := []}) ->
+    Stream;
+clean_hangs(Stream = #{hangs := Hangs}) ->
+    Nowts = erlang:system_time(millisecond),
+    Hangs1 = lists:filter(fun({_, T}) -> T >= Nowts end, Hangs),
+    Stream#{hangs => Hangs1}.
+
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
-
-eval_stream_callback(Args0, {Fun, Args1}) ->
-    erlang:apply(Fun, Args0 ++ Args1);
-eval_stream_callback(Args0, Fun) when is_function(Fun) ->
-    erlang:apply(Fun, Args0).
 
 do_connect(State = #state{server = {_, Host, Port}, gun_opts = GunOpts}) ->
     case gun:open(Host, Port, GunOpts) of
@@ -423,6 +478,10 @@ do_connect(State = #state{server = {_, Host, Port}, gun_opts = GunOpts}) ->
 
 %%--------------------------------------------------------------------
 %% Helpers
+
+format_stream(#{st := St, recvbuff := Buff, mqueue := MQueue}) ->
+    io_lib:format("#stream{st=~p, buff_size=~w, mqueue=~p}",
+                  [St, byte_size(Buff), MQueue]).
 
 call(ChannPid, Msg) ->
     call(ChannPid, Msg, ?UNARY_TIMEOUT).

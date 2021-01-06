@@ -89,15 +89,11 @@ t_get_feature(_) ->
                  routeguide_route_guide_client:get_feature(#{}, #{}, #{channel => ?CHANN_NAME})).
 
 t_list_features(_) ->
-    Hdlr = #{incoming =>
-               fun(_StreamRef, Resps) ->
-                 ?LOG("Streaming incoming: ~0p~n", [Resps])
-               end},
-    {ok, Stream} = routeguide_route_guide_client:list_features(Hdlr, #{}, #{channel => ?CHANN_NAME}),
+    {ok, Stream} = routeguide_route_guide_client:list_features(#{}, #{channel => ?CHANN_NAME}),
     grpc_client:streaming(Stream, #{}, fin).
 
 t_record_route(_) ->
-    {ok, Stream} = routeguide_route_guide_client:record_route(#{}, #{}, #{channel => ?CHANN_NAME}),
+    {ok, Stream} = routeguide_route_guide_client:record_route(#{}, #{channel => ?CHANN_NAME}),
     grpc_client:streaming(Stream, #{latitude => 1, longitude => 2}),
     grpc_client:streaming(Stream, #{latitude => 2, longitude => 3}),
     timer:sleep(100),
