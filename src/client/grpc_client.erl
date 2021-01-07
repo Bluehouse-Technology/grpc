@@ -52,6 +52,8 @@
           gun_pid :: undefined | pid(),
           %% The Monitor referebce for gun connection pid
           mref :: undefined | reference(),
+          %% Clean timer reference
+          tref :: undefined | reference(),
           %% Encoding for gRPC packets
           encoding :: grpc_frame:encoding(),
           %% Streams
@@ -82,7 +84,7 @@
 
 -type server() :: {http | https, string(), inet:port_number()}.
 
--type grpc_opts() ::
+-type client_opts() ::
         #{ encoding => grpc_frame:encoding()
          , gun_opts => gun:opts()
          }.
@@ -103,6 +105,8 @@
 
 -define(UNARY_TIMEOUT, 5000).
 
+-define(STOPPED_STREAM_RESERVE_TIMEOUT, 15000).
+
 -type stream_state() :: idle | open | closed.
 
 -type stream() :: #{ st       := {LocalState :: stream_state(),
@@ -115,16 +119,16 @@
 
 -type client_pid() :: pid().
 
--type grpcstream() :: #{client_pid := client_pid(),
-                        stream_ref := reference(),
-                        def := def()
-                        }.
+-type grpcstream() :: #{ client_pid := client_pid()
+                       , stream_ref := reference()
+                       , def := def()
+                       }.
 
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
--spec start_link(term(), pos_integer(), server(), grpc_opts())
+-spec start_link(term(), pos_integer(), server(), client_opts())
     -> {ok, pid()} | ignore | {error, term()}.
 start_link(Pool, Id, Server, Opts) when is_map(Opts)  ->
     gen_server:start_link(?MODULE, [Pool, Id, Server, Opts], []).
@@ -134,8 +138,6 @@ start_link(Pool, Id, Server, Opts) when is_map(Opts)  ->
 
 -spec unary(def(), request(), grpc:metadata(), options())
     -> {ok, response(), grpc:metadata()}
-     %% TODO: Need tests
-     | {error, {grpc_error, grpc_status(), grpc_message()}}
      | {error, term()}.
 %% @doc Unary function call
 unary(Def, Req, Metadata, Options) ->
@@ -145,9 +147,10 @@ unary(Def, Req, Metadata, Options) ->
         {ok, GStream} ->
             _ = send(GStream, Req, fin),
             case recv(GStream, Timeout) of
-                {ok, [Resp]} ->
+                %% XXX: ?? Recv a error trailers ??
+                {ok, [Frame]} when is_binary(Frame) ->
                     {ok, [{eos, Trailers}]} = recv(GStream, Timeout),
-                    {ok, Resp, Trailers};
+                    {ok, Frame, Trailers};
                 {ok, [Frame, Trailers]} ->
                     {ok, Unmarshal(Frame), Trailers};
                 {error, _} = E -> E
@@ -215,14 +218,15 @@ init([Pool, Id, Server = {_, _, _}, Opts]) ->
     GunOpts = maps:get(gun_opts, Opts, #{}),
     NGunOpts = maps:merge(?DEFAULT_GUN_OPTS, GunOpts),
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
-    {ok, #state{
-            pool = Pool,
-            id = Id,
-            gun_pid = undefined,
-            server = Server,
-            encoding = Encoding,
-            streams = #{},
-            gun_opts = NGunOpts}}.
+    {ok, ensure_clean_timer(
+           #state{
+              pool = Pool,
+              id = Id,
+              gun_pid = undefined,
+              server = Server,
+              encoding = Encoding,
+              streams = #{},
+              gun_opts = NGunOpts})}.
 
 handle_call(Req, From, State = #state{gun_pid = undefined}) ->
     case do_connect(State) of
@@ -290,6 +294,16 @@ handle_call(_Request, _From, State) ->
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
+
+handle_info({timeout, TRef, clean_stopped_stream},
+            State = #state{tref = TRef, streams = Streams}) ->
+    Nowts = erlang:system_time(millisecond),
+    NStreams = maps:filter(
+                 fun(_, #{stopped := Stoppedts}) ->
+                       Nowts < Stoppedts + ?STOPPED_STREAM_RESERVE_TIMEOUT;
+                    (_, _) -> true
+                 end, Streams),
+    {noreply, ensure_clean_timer(State#state{streams = NStreams, tref = undefined})};
 
 handle_info({gun_up, GunPid, http2}, State = #state{gun_pid = GunPid}) ->
     {noreply, State};
@@ -486,6 +500,14 @@ do_connect(State = #state{server = {_, Host, Port}, gun_opts = GunOpts}) ->
 
 %%--------------------------------------------------------------------
 %% Helpers
+
+ensure_clean_timer(State = #state{tref = undefined}) ->
+    TRef = erlang:start_timer(?STOPPED_STREAM_RESERVE_TIMEOUT,
+                              self(),
+                              clean_stopped_stream),
+    State#state{tref = TRef};
+ensure_clean_timer(State) ->
+    State.
 
 format_stream(#{st := St, recvbuff := Buff, mqueue := MQueue}) ->
     io_lib:format("#stream{st=~p, buff_size=~w, mqueue=~p}",

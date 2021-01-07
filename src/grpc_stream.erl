@@ -54,7 +54,7 @@
 %%--------------------------------------------------------------------
 
 recv(St) ->
-    recv(St, 5000).
+    recv(St, 15000).
 
 -spec recv(stream(), timeout()) -> {more | eos, [map()], stream()}.
 recv(St = #{req         := Req,
