@@ -1,8 +1,8 @@
 # gRPC
 
-An implementation of a gRPC server in Erlang.
+An implementation of a gRPC server/client in Erlang.
 
-An implementation of the client side is also available: [grpc_client](https://github.com/Bluehouse-Technology/grpc_client).
+NOTE: The prototypes for this repository are from [Bluehouse-Technology/grpc](https://github.com/Bluehouse-Technology/grpc) and [tsloughter/grpcbox](https://github.com/ tsloughter/grpcbox) Many thanks to these two repositories for helping me with the implementation :)
 
 ## TODOs
 

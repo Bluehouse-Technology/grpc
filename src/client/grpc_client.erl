@@ -142,17 +142,16 @@ start_link(Pool, Id, Server, Opts) when is_map(Opts)  ->
 %% @doc Unary function call
 unary(Def, Req, Metadata, Options) ->
     Timeout = maps:get(timeout, Options, ?UNARY_TIMEOUT),
-    Unmarshal = maps:get(unmarshal, Def),
     case open(Def, Metadata, Options) of
         {ok, GStream} ->
             _ = send(GStream, Req, fin),
             case recv(GStream, Timeout) of
                 %% XXX: ?? Recv a error trailers ??
-                {ok, [Frame]} when is_binary(Frame) ->
+                {ok, [Resp]} when is_map(Resp) ->
                     {ok, [{eos, Trailers}]} = recv(GStream, Timeout),
-                    {ok, Frame, Trailers};
-                {ok, [Frame, Trailers]} ->
-                    {ok, Unmarshal(Frame), Trailers};
+                    {ok, Resp, Trailers};
+                {ok, [Resp, Trailers]} ->
+                    {ok, Resp, Trailers};
                 {error, _} = E -> E
             end;
         E -> E
@@ -505,9 +504,7 @@ ensure_clean_timer(State = #state{tref = undefined}) ->
     TRef = erlang:start_timer(?STOPPED_STREAM_RESERVE_TIMEOUT,
                               self(),
                               clean_stopped_stream),
-    State#state{tref = TRef};
-ensure_clean_timer(State) ->
-    State.
+    State#state{tref = TRef}.
 
 format_stream(#{st := St, recvbuff := Buff, mqueue := MQueue}) ->
     io_lib:format("#stream{st=~p, buff_size=~w, mqueue=~p}",
