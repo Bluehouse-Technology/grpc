@@ -103,9 +103,9 @@
           http2_opts => #{keepalive => 60000}
          }).
 
--define(UNARY_TIMEOUT, 5000).
+-define(DEFAULT_TIMEOUT, 5000).
 
--define(STOPPED_STREAM_RESERVE_TIMEOUT, 15000).
+-define(STREAM_RESERVED_TIMEOUT, 15000).
 
 -type stream_state() :: idle | open | closed.
 
@@ -141,7 +141,7 @@ start_link(Pool, Id, Server, Opts) when is_map(Opts)  ->
      | {error, term()}.
 %% @doc Unary function call
 unary(Def, Req, Metadata, Options) ->
-    Timeout = maps:get(timeout, Options, ?UNARY_TIMEOUT),
+    Timeout = maps:get(timeout, Options, ?DEFAULT_TIMEOUT),
     case open(Def, Metadata, Options) of
         {ok, GStream} ->
             _ = send(GStream, Req, fin),
@@ -189,7 +189,7 @@ send(_GStream = #{
     -> {ok, [response() | eos_msg()]}
      | {error, term()}.
 recv(GStream) ->
-    recv(GStream, 5000).
+    recv(GStream, ?DEFAULT_TIMEOUT).
 
 -spec recv(grpcstream(), timeout())
     -> {ok, [response() | eos_msg()]}
@@ -240,7 +240,7 @@ handle_call({open, #{path := Path,
                     }, Metadata, Options},
             _From,
             State = #state{gun_pid = GunPid, streams = Streams, encoding = Encoding}) ->
-    Timeout = maps:get(timeout, Options, ?UNARY_TIMEOUT),
+    Timeout = maps:get(timeout, Options, ?DEFAULT_TIMEOUT),
     Headers = ?headers(atom_to_binary(Encoding, utf8), MessageType, Timeout, Metadata),
     StreamRef = gun:post(GunPid, Path, Headers),
     Stream = #{st       => {open, idle},
@@ -299,7 +299,7 @@ handle_info({timeout, TRef, clean_stopped_stream},
     Nowts = erlang:system_time(millisecond),
     NStreams = maps:filter(
                  fun(_, #{stopped := Stoppedts}) ->
-                       Nowts < Stoppedts + ?STOPPED_STREAM_RESERVE_TIMEOUT;
+                       Nowts < Stoppedts + ?STREAM_RESERVED_TIMEOUT;
                     (_, _) -> true
                  end, Streams),
     {noreply, ensure_clean_timer(State#state{streams = NStreams, tref = undefined})};
@@ -501,7 +501,7 @@ do_connect(State = #state{server = {_, Host, Port}, gun_opts = GunOpts}) ->
 %% Helpers
 
 ensure_clean_timer(State = #state{tref = undefined}) ->
-    TRef = erlang:start_timer(?STOPPED_STREAM_RESERVE_TIMEOUT,
+    TRef = erlang:start_timer(?STREAM_RESERVED_TIMEOUT,
                               self(),
                               clean_stopped_stream),
     State#state{tref = TRef}.
@@ -511,7 +511,7 @@ format_stream(#{st := St, recvbuff := Buff, mqueue := MQueue}) ->
                   [St, byte_size(Buff), MQueue]).
 
 call(ChannPid, Msg) ->
-    call(ChannPid, Msg, ?UNARY_TIMEOUT).
+    call(ChannPid, Msg, ?DEFAULT_TIMEOUT).
 
 call(ChannPid, Msg, Timeout) ->
     gen_server:call(ChannPid, Msg, Timeout).
