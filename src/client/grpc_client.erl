@@ -21,15 +21,15 @@
 -include("grpc.hrl").
 
 %% APIs
--export([ unary/4
-        , open_stream/3
-        , streaming/2
-        , streaming/3
+-export([unary/4]).
+
+-export([ open/3
+        , send/2
+        , send/3
         , recv/1
         , recv/2
         ]).
 
-%% APIs
 -export([start_link/4]).
 
 %% gen_server callbacks
@@ -41,15 +41,24 @@
         , code_change/3
         ]).
 
--record(state, { pool
-               , id
-               , gun_pid
-               , mref
-               , encoding
-               , server
-               , streams :: #{reference() := stream()}
-               , gun_opts
-               }).
+-record(state, {
+          %% Pool name
+          pool,
+          %% The worker id in the pool
+          id,
+          %% Server address
+          server :: server(),
+          %% Gun connection pid
+          gun_pid :: undefined | pid(),
+          %% The Monitor referebce for gun connection pid
+          mref :: undefined | reference(),
+          %% Encoding for gRPC packets
+          encoding :: grpc_frame:encoding(),
+          %% Streams
+          streams :: #{reference() := stream()},
+          %% Initial gun options
+          gun_opts :: gun:opts()
+         }).
 
 -type request() :: map().
 
@@ -121,8 +130,7 @@ start_link(Pool, Id, Server, Opts) when is_map(Opts)  ->
     gen_server:start_link(?MODULE, [Pool, Id, Server, Opts], []).
 
 %%--------------------------------------------------------------------
-%% GRPC APIs
-%%--------------------------------------------------------------------
+%% gRPC APIs
 
 -spec unary(def(), request(), grpc:metadata(), options())
     -> {ok, response(), grpc:metadata()}
@@ -133,9 +141,9 @@ start_link(Pool, Id, Server, Opts) when is_map(Opts)  ->
 unary(Def, Req, Metadata, Options) ->
     Timeout = maps:get(timeout, Options, ?UNARY_TIMEOUT),
     Unmarshal = maps:get(unmarshal, Def),
-    case open_stream(Def, Metadata, Options) of
+    case open(Def, Metadata, Options) of
         {ok, GStream} ->
-            _ = streaming(GStream, Req, fin),
+            _ = send(GStream, Req, fin),
             case recv(GStream, Timeout) of
                 {ok, [Resp]} ->
                     {ok, [{eos, Trailers}]} = recv(GStream, Timeout),
@@ -147,30 +155,30 @@ unary(Def, Req, Metadata, Options) ->
         E -> E
     end.
 
--spec open_stream(def(), grpc:metadata(), options())
+-spec open(def(), grpc:metadata(), options())
     -> {ok, grpcstream()}
      | {error, term()}.
 
-open_stream(Def, Metadata, Options) ->
+open(Def, Metadata, Options) ->
     ClientPid = pick(maps:get(channel, Options, undefined)),
-    case call(ClientPid, {open_stream, Def, Metadata, Options}) of
+    case call(ClientPid, {open, Def, Metadata, Options}) of
         {ok, StreamRef} ->
             {ok, #{stream_ref => StreamRef, client_pid => ClientPid, def => Def}};
         {error, _} = Error -> Error
     end.
 
--spec streaming(grpcstream(), request()) -> ok.
-streaming(GStream, Req) ->
-    streaming(GStream, Req, nofin).
+-spec send(grpcstream(), request()) -> ok.
+send(GStream, Req) ->
+    send(GStream, Req, nofin).
 
-streaming(_GStream = #{
+send(_GStream = #{
              def        := Def,
              client_pid := ClientPid,
              stream_ref := StreamRef
           }, Req, IsFin) ->
     #{marshal := Marshal} = Def,
     Bytes = Marshal(Req),
-    case call(ClientPid, {streaming, StreamRef, Bytes, IsFin}) of
+    case call(ClientPid, {send, StreamRef, Bytes, IsFin}) of
         ok -> ok;
         {error, R} -> error(R)
     end.
@@ -224,9 +232,9 @@ handle_call(Req, From, State = #state{gun_pid = undefined}) ->
             handle_call(Req, From, NState)
     end;
 
-handle_call({open_stream, #{path := Path,
-                            message_type := MessageType
-                           }, Metadata, Options},
+handle_call({open, #{path := Path,
+                     message_type := MessageType
+                    }, Metadata, Options},
             _From,
             State = #state{gun_pid = GunPid, streams = Streams, encoding = Encoding}) ->
     Timeout = maps:get(timeout, Options, ?UNARY_TIMEOUT),
@@ -241,7 +249,7 @@ handle_call({open_stream, #{path := Path,
     NState = State#state{streams = Streams#{StreamRef => Stream}},
     {reply, {ok, StreamRef}, NState};
 
-handle_call(_Req = {streaming, StreamRef, Bytes, IsFin},
+handle_call(_Req = {send, StreamRef, Bytes, IsFin},
             _From,
             State = #state{gun_pid = GunPid, streams = Streams, encoding = Encoding}) ->
     case maps:get(StreamRef, Streams, undefined) of

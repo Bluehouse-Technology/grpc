@@ -4,12 +4,12 @@ An implementation of a gRPC server in Erlang.
 
 An implementation of the client side is also available: [grpc_client](https://github.com/Bluehouse-Technology/grpc_client).
 
-## TODO
+## TODOs
 
 - [x] Unary
 - [x] Custom metadata
 - [x] Https
-- [ ] Input streaming/ Output streaming/ Bidirectional streaming
+- [x] Input streaming/ Output streaming/ Bidirectional streaming
 - [ ] Encoding: identity, gzip, deflate, snappy
 - [ ] Timeout, Error Handling
 - [ ] Benchmark

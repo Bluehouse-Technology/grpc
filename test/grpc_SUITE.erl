@@ -93,7 +93,7 @@ t_get_feature(_) ->
 
 t_list_features(_) ->
     {ok, Stream} = routeguide_route_guide_client:list_features(#{}, #{channel => ?CHANN_NAME}),
-    grpc_client:streaming(Stream, #{}, fin),
+    grpc_client:send(Stream, #{}, fin),
     LoopRecv = fun _Lp(Acc) ->
                        {ok, Fs} = grpc_client:recv(Stream),
                        case Acc ++ Fs of
@@ -109,10 +109,10 @@ t_list_features(_) ->
 
 t_record_route(_) ->
     {ok, Stream} = routeguide_route_guide_client:record_route(#{}, #{channel => ?CHANN_NAME}),
-    grpc_client:streaming(Stream, #{latitude => 1, longitude => 1}),
-    grpc_client:streaming(Stream, #{latitude => 2, longitude => 2}),
+    grpc_client:send(Stream, #{latitude => 1, longitude => 1}),
+    grpc_client:send(Stream, #{latitude => 2, longitude => 2}),
     timer:sleep(100),
-    grpc_client:streaming(Stream, #{latitude => 3, longitude => 3}, fin),
+    grpc_client:send(Stream, #{latitude => 3, longitude => 3}, fin),
     LoopRecv = fun _Lp(Acc) ->
                        {ok, Fs} = grpc_client:recv(Stream),
                        case Acc ++ Fs of
