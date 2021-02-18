@@ -54,8 +54,8 @@ end_per_suite(_Cfg) ->
 matrix() ->
     %% Procs count, Req/procs, Req size
     [ {1, 2, 10}
-%    , {100, 100, 1024}
-%    , {1000, 100, 1024}
+    , {100, 100, 1024}
+    , {1000, 100, 1024}
 %    , {100, 10000, 1024}    %% 1000MB
 %
 %    , {10000, 1, 32}        %% 312KB
@@ -87,7 +87,7 @@ shot_once_func(Size) ->
                 ?LOG("1Send request failed: ~p~n", [Err]),
                 error
         catch Type:Name:_Stk ->
-                ?LOG("Send request failed: ~p:~p:~n", [Type, element(1,Name)]),
+                ?LOG("Send request failed: ~p:~p:~p~n", [Type, element(1,Name), _Stk]),
                 error
         end
     end.
