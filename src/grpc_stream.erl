@@ -97,11 +97,10 @@ init(Req, Options) ->
              timeout => infinity}, Req),
     Services = maps:get(services, Options, #{}),
     RpcServicesAndName = {_, ReqRpc} =
-        {binary_to_existing_atom(cowboy_req:binding(service, Req), utf8),
-         binary_to_existing_atom(cowboy_req:binding(method, Req), utf8)},
+        {cowboy_req:binding(service, Req), cowboy_req:binding(method, Req)},
     case maps:get(RpcServicesAndName, Services, undefined) of
         undefined ->
-            shutdown(?GRPC_STATUS_NOT_FOUND, <<"">>, St);
+            shutdown(?GRPC_STATUS_NOT_FOUND, <<"">>, send_headers_first(St));
         Defs ->
             case authenticate(Req, Options) of
                 {true, ClientInfo} ->
@@ -226,7 +225,10 @@ headers(St) ->
                       Meta#{<<"grpc-encoding">> => <<"gzip">>};
                   _ -> Meta
               end,
-    grpc_lib:maybe_encode_headers(Headers).
+    NHeaders = Headers#{
+                 <<"content-type">> => <<"application/grpc">>
+                },
+    grpc_lib:maybe_encode_headers(NHeaders).
 
 %% Ret :: {shutdown, Code, Message}
 %%      | {ok, NEvents, NSt}

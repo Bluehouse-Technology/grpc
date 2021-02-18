@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,15 +14,28 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(greeter_svr).
+-module(grpc_reflection_svr).
 
--behavior(greeter_bhvr).
+-behavior(grpc_reflection_v_1_server_reflection_bhvr).
 
--compile(export_all).
--compile(nowarn_export_all).
+-export([server_reflection_info/2]).
 
 %%--------------------------------------------------------------------
 %% Callbacks
 
-say_hello(_Req = #{name := Name}, _Md) ->
-    {ok, #{message => <<"Hi, ", Name/binary, "~">>}, _Md}.
+-spec server_reflection_info(grpc_stream:stream(), grpc:metadata())
+    -> {ok, grpc_stream:stream()}.
+
+server_reflection_info(Stream, _Md) ->
+    LoopRecv = fun _Lp(St) ->
+        case grpc_stream:recv(St) of
+            {more, Reqs, NSt} ->
+                io:format("reflection req: ~p~n", [Reqs]),
+                _Lp(NSt);
+            {eos, Reqs, NSt} ->
+                io:format("reflection req: ~p~n", [Reqs]),
+                NSt
+        end
+    end,
+    NStream = LoopRecv(Stream),
+    {ok, NStream}.

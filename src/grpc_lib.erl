@@ -126,8 +126,10 @@ keytake(Key, KVList, Default) ->
             {Default, KVList}
     end.
 
-list_snake_case(NameAtom) when is_atom(NameAtom) ->
-    list_snake_case(atom_to_list(NameAtom));
+list_snake_case(Name) when is_binary(Name) ->
+    list_snake_case(binary_to_list(Name));
+list_snake_case(Name) when is_atom(Name) ->
+    list_snake_case(atom_to_list(Name));
 list_snake_case(NameString) ->
     Snaked = lists:foldl(
                fun(RE, Snaking) ->

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,15 +14,28 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(greeter_svr).
+-module(grpc_health_svr).
 
--behavior(greeter_bhvr).
+-behavior(grpc_health_v_1_health_bhvr).
 
--compile(export_all).
--compile(nowarn_export_all).
+-export([ check/2
+        , watch/2
+        ]).
 
 %%--------------------------------------------------------------------
 %% Callbacks
 
-say_hello(_Req = #{name := Name}, _Md) ->
-    {ok, #{message => <<"Hi, ", Name/binary, "~">>}, _Md}.
+check(#{service := _Service}, _Md) ->
+    %% TODO: How to get the Service running status?
+    {ok, #{status => 'SERVING'}}.
+
+watch(Stream, _Md) ->
+    %% TODO: How to get the Service running status?
+    {eos, [#{service := _Service}], NStream} = grpc_stream:recv(Stream),
+    RelpyLp = fun _Lp() ->
+                grpc_stream:reply(NStream, [#{status => 'SERVING'}]),
+                timer:sleep(15000),
+                _Lp()
+              end,
+    RelpyLp(),
+    {ok, NStream}.

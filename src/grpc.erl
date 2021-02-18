@@ -55,8 +55,37 @@ start_server(Name, ListenOn, Services) ->
 start_server(Name, ListenOn, Services, Options) ->
     _ = application:ensure_all_started(grpc),
 
-    UserOptions = #{services => compile_service_rules(Services)},
+    Services1 = enable_default_services(
+                  proplists:get_value(enable_default_services, Options, all),
+                  Services),
+
+    UserOptions = #{services => compile_service_rules(Services1)},
     start_http_server(Name, listen(ListenOn), Options, UserOptions).
+
+enable_default_services(all, Services) ->
+    DefatServicesName = ['grpc.health.v1.Health',
+                         'grpc.reflection.v1alpha.ServerReflection'
+                        ],
+    enable_default_services(DefatServicesName, Services);
+
+enable_default_services([], Services) ->
+    Services;
+enable_default_services(['grpc.health.v1.Health' | Ls],
+                        #{protos := Protos, services := Services}) ->
+    enable_default_services(
+      Ls,
+      #{protos => ['grpc_health_pb' | Protos],
+        services => Services#{'grpc.health.v1.Health' => grpc_health_svr}}
+     );
+enable_default_services(['grpc.reflection.v1alpha.ServerReflection' | Ls],
+                        #{protos := Protos, services := Services}) ->
+    enable_default_services(
+      Ls,
+      #{protos => ['grpc_reflection_pb' | Protos],
+        services =>
+          Services#{
+            'grpc.reflection.v1alpha.ServerReflection' => grpc_reflection_svr}}
+     ).
 
 %% @private
 %% {ServicesName, FunName} => ServiceDefs
@@ -73,8 +102,10 @@ compile_service_rules(Services0) ->
             {_, Pb} ->
                 lists:foldl(fun(RpcName, Acc2) ->
                     RpcDef = Pb:find_rpc_def(SvrName, RpcName),
-                    Acc2#{{SvrName, RpcName} => RpcDef#{pb => Pb,
-                                                        handler => Handler}}
+                    Acc2#{{atom_to_binary(SvrName, utf8),
+                           atom_to_binary(RpcName, utf8)
+                          } => RpcDef#{pb => Pb, handler => Handler}
+                         }
                 end, Acc, Pb:get_rpc_names(SvrName))
         end
     end, #{}, Services).
