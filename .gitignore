@@ -19,10 +19,10 @@ grpc.d
 *.swp
 rebar.lock
 rebar3.crashdump
-src/ct_greeter_pb.erl
-src/greeter_bhvr.erl
-src/greeter_client.erl
-src/ct_route_guide_pb.erl
-src/routeguide_route_guide_bhvr.erl
-src/routeguide_route_guide_client.erl
+test/ct_greeter_pb.erl
+test/greeter_bhvr.erl
+test/greeter_client.erl
+test/ct_route_guide_pb.erl
+test/routeguide_route_guide_bhvr.erl
+test/routeguide_route_guide_client.erl
 .rebar3/
