@@ -32,7 +32,7 @@
      | {error, grpc_stream:error_response()}.
 check(#{service := _Service}, _Md) ->
     %% TODO: How to get the Service running status?
-    {ok, #{status => 'SERVING'}}.
+    {ok, #{status => 'SERVING'}, _Md}.
 
 -spec watch(grpc_stream:stream(), grpc:metadata())
     -> {ok, grpc_stream:stream()}.
