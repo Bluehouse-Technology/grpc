@@ -22,13 +22,20 @@
         , watch/2
         ]).
 
+-dialyzer({nowarn_function, [check/2, watch/2]}).
+
 %%--------------------------------------------------------------------
 %% Callbacks
 
+-spec check(grpc_health_pb:health_check_request(), grpc:metadata())
+    -> {ok, grpc_health_pb:health_check_response(), grpc:metadata()}
+     | {error, grpc_stream:error_response()}.
 check(#{service := _Service}, _Md) ->
     %% TODO: How to get the Service running status?
     {ok, #{status => 'SERVING'}}.
 
+-spec watch(grpc_stream:stream(), grpc:metadata())
+    -> {ok, grpc_stream:stream()}.
 watch(Stream, _Md) ->
     %% TODO: How to get the Service running status?
     {eos, [#{service := _Service}], NStream} = grpc_stream:recv(Stream),

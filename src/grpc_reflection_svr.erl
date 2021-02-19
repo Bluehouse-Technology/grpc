@@ -16,7 +16,7 @@
 
 -module(grpc_reflection_svr).
 
--behavior(grpc_reflection_v_1_server_reflection_bhvr).
+-behavior(grpc_reflection_v_1alpha_server_reflection_bhvr).
 
 -export([server_reflection_info/2]).
 
