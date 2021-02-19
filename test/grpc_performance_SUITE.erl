@@ -36,7 +36,7 @@ all() ->
     [t_performance].
 
 init_per_suite(Cfg) ->
-    Services = #{protos => [ct_greeter_pb],
+    Services = #{protos => [grpc_greeter_pb],
                  services => #{'Greeter' => greeter_svr}
                 },
     {ok, _} = grpc:start_server(?SERVER_NAME, 10000, Services),

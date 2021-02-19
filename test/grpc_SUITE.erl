@@ -45,7 +45,7 @@ init_per_group(GrpName, Cfg) ->
     Cert = filename:join([TestDir, "certs", "cert.pem"]),
     Key = filename:join([TestDir, "certs", "key.pem"]),
 
-    Services = #{protos => [ct_greeter_pb, ct_route_guide_pb],
+    Services = #{protos => [grpc_greeter_pb, grpc_route_guide_pb],
                  services => #{'Greeter' => greeter_svr,
                                'routeguide.RouteGuide' => route_guide_svr}
                 },
