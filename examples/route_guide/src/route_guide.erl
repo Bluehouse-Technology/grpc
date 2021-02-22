@@ -6,7 +6,8 @@
 -export([start/2, stop/1]).
 -export([init/1]).
 
--export([start_services/0, start_client_channel/0]).
+-export([start_services/0, start_client_channel/0,
+         stop_services/0, stop_client_channel/0]).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -36,6 +37,12 @@ start_client_channel() ->
               "  routeguide_route_guide_client:get_feature(#{latitude => 1"
               ", longitude => 1}, #{channel => channel1}).~n",
               [?CHANN_NAME, SvrAddr]).
+
+stop_services() ->
+    grpc:stop_server(?SERVER_NAME).
+
+stop_client_channel() ->
+    grpc_client_sup:stop_channel_pool(?CHANN_NAME).
 
 %%--------------------------------------------------------------------
 %% APIs for application

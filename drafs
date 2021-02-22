@@ -1,0 +1,4 @@
+> This document logs some rough ideas for grpc
+
+- Support pass the server's env to grpc-server callback function?
+- How to get the server options/env in the callback function?
