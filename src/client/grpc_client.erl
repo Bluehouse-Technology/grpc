@@ -520,6 +520,6 @@ pick(ChannName) ->
     gproc_pool:pick_worker(ChannName, self()).
 
 ms2timeout(Ms) when Ms > 1000 ->
-    io_lib:format("~wS", [Ms div 1000]);
+    [integer_to_list(Ms div 1000), $S];
 ms2timeout(Ms) ->
-    io_lib:format("~wm", [Ms]).
+    [integer_to_list(Ms), $m].
