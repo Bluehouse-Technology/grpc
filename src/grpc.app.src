@@ -3,7 +3,7 @@
   {vsn, "git"},
   {registered, []},
   {mod, {grpc_app, []}},
-  {applications, [kernel,stdlib,cowboy,gun]},
+  {applications, [kernel,stdlib,gproc,cowboy,gun]},
   {env,[]},
   {modules, []},
   {licenses, ["Apache 2.0"]},
