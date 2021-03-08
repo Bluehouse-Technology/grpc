@@ -19,7 +19,7 @@ jobs:
         $env:PATH = "${{ steps.install_erlang.outputs.erlpath }}\bin;$env:PATH"
 
         $rebar3 = $env:USERPROFILE + "\rebar3"
-        (New-Object System.Net.WebClient).DownloadFile('https://s3.amazonaws.com/rebar3/rebar3', $rebar3)
+        (New-Object System.Net.WebClient).DownloadFile('https://github.com/emqx/rebar3/releases/download/3.14.3-emqx-4/rebar3', $rebar3)
 
         escript $rebar3 xref
         escript $rebar3 dialyzer
@@ -37,7 +37,7 @@ jobs:
         echo "/usr/local/bin:$PATH" >> ~/.bashrc
     - name: install rebar3
       run: |
-        curl -fsSL -o /usr/local/bin/rebar3 https://s3.amazonaws.com/rebar3/rebar3
+        curl -fsSL -o /usr/local/bin/rebar3 https://github.com/emqx/rebar3/releases/download/3.14.3-emqx-4/rebar3
         chmod +x /usr/local/bin/rebar3
     - name: Code analyze
       run: |
