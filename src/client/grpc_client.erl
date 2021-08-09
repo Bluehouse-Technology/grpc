@@ -335,16 +335,27 @@ handle_info(Info, State = #state{streams = Streams}) when is_tuple(Info) ->
     case lists:member(element(1, Info), Ls) of
         true ->
             StreamRef = element(3, Info),
-            case maps:get(StreamRef, Streams, undefined) of
-                undefined ->
-                    ?LOG(warning, "[gRPC Client] Unknown stream ref: ~0p, event: ~0p", [StreamRef, Info]),
+            case StreamRef of
+                {stop, {goaway, StreamID, ErrCode, _AddData}, Reason} ->
+                    %% Ignore the goaway message; the state of the stream
+                    %% will be cleared in the gun_down event
+                    ?LOG(debug, "[gRPC Client] Stream ~w goaway, "
+                                "error_code: ~0p, details: ~0p",
+                                [StreamID, ErrCode, Reason]),
                     {noreply, State};
-                Stream ->
-                    handle_stream_handle_result(
-                      stream_handle(Info, Stream),
-                      StreamRef,
-                      Streams,
-                      State)
+                _ ->
+                    case maps:get(StreamRef, Streams, undefined) of
+                        undefined ->
+                            ?LOG(warning, "[gRPC Client] Unknown stream ref: ~0p, "
+                                          "event: ~0p", [StreamRef, Info]),
+                            {noreply, State};
+                        Stream ->
+                            handle_stream_handle_result(
+                              stream_handle(Info, Stream),
+                              StreamRef,
+                              Streams,
+                              State)
+                    end
             end;
         _ ->
             ?LOG(warning, "[gRPC Client] Unexpected info: ~p~n", [Info]),
