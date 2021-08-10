@@ -69,9 +69,24 @@
 -type eos_msg() :: {eos, list()}.
 
 -type options() ::
-        #{ channel => term()
+        #{ channel := term()
+         %% The grpc-encoding method
+         %% Default is identity
          , encoding => grpc_frame:encoding()
-         , atom() => term()
+         %% The timeout to receive the response of request. The clock starts
+         %% ticking when the request is sent
+         %%
+         %% Time is in milliseconds
+         %%
+         %% Default is infinity
+         , timeout => non_neg_integer()
+         %% Connection time-out time, used during the initial request,
+         %% when the client is connecting to the server
+         %%
+         %% Time is in milliseconds
+         %%
+         %% Default equal to timeout option
+         , connect_timeout => non_neg_integer()
          }.
 
 -type def() ::
@@ -89,21 +104,11 @@
          , gun_opts => gun:opts()
          }.
 
--define(headers(Encoding, MessageType, Timeout, MD),
-        [{<<"grpc-encoding">>, Encoding},
-         {<<"grpc-message-type">>, MessageType},
-         {<<"grpc-timeout">>, ms2timeout(Timeout)},
-         {<<"content-type">>, <<"application/grpc+proto">>},
-         {<<"user-agent">>, <<"grpc-erlang/0.1.0">>},
-         {<<"te">>, <<"trailers">>} | maps:to_list(MD)]).
-
 -define(DEFAULT_GUN_OPTS,
         #{protocols => [http2],
           connect_timeout => 5000,
           http2_opts => #{keepalive => 60000}
          }).
-
--define(DEFAULT_TIMEOUT, 5000).
 
 -define(STREAM_RESERVED_TIMEOUT, 15000).
 
@@ -141,7 +146,7 @@ start_link(Pool, Id, Server, Opts) when is_map(Opts)  ->
      | {error, term()}.
 %% @doc Unary function call
 unary(Def, Req, Metadata, Options) ->
-    Timeout = maps:get(timeout, Options, ?DEFAULT_TIMEOUT),
+    Timeout = maps:get(timeout, Options, infinity),
     case open(Def, Metadata, Options) of
         {ok, GStream} ->
             _ = send(GStream, Req, fin),
@@ -163,11 +168,18 @@ unary(Def, Req, Metadata, Options) ->
 
 open(Def, Metadata, Options) ->
     ClientPid = pick(maps:get(channel, Options, undefined)),
-    case call(ClientPid, {open, Def, Metadata, Options}) of
+    case call(ClientPid, {open, Def, Metadata, Options}, connect_timeout(Options)) of
         {ok, StreamRef} ->
             {ok, #{stream_ref => StreamRef, client_pid => ClientPid, def => Def}};
         {error, _} = Error -> Error
     end.
+
+connect_timeout(Options) ->
+    maps:get(
+      connect_timeout,
+      Options,
+      maps:get(timeout, Options, infinity)
+     ).
 
 -spec send(grpcstream(), request()) -> ok.
 send(GStream, Req) ->
@@ -180,7 +192,7 @@ send(_GStream = #{
           }, Req, IsFin) ->
     #{marshal := Marshal} = Def,
     Bytes = Marshal(Req),
-    case call(ClientPid, {send, StreamRef, Bytes, IsFin}) of
+    case call(ClientPid, {send, StreamRef, Bytes, IsFin}, infinity) of
         ok -> ok;
         {error, R} -> error(R)
     end.
@@ -189,7 +201,7 @@ send(_GStream = #{
     -> {ok, [response() | eos_msg()]}
      | {error, term()}.
 recv(GStream) ->
-    recv(GStream, ?DEFAULT_TIMEOUT).
+    recv(GStream, infinity).
 
 -spec recv(grpcstream(), timeout())
     -> {ok, [response() | eos_msg()]}
@@ -198,8 +210,11 @@ recv(#{def        := Def,
        client_pid := ClientPid,
        stream_ref := StreamRef}, Timeout) ->
     Unmarshal = maps:get(unmarshal, Def),
-    Endts = erlang:system_time(millisecond) + Timeout,
-    case call(ClientPid, {read, StreamRef, Endts}) of
+    Endts = case Timeout of
+                infinity -> infinity;
+                _ -> erlang:system_time(millisecond) + Timeout
+            end,
+    case call(ClientPid, {read, StreamRef, Endts}, Timeout) of
         {error, _} = E -> E;
         {IsMore, Frames} ->
             Msgs = lists:map(fun({eos, Trailers}) -> {eos, Trailers};
@@ -240,8 +255,12 @@ handle_call({open, #{path := Path,
                     }, Metadata, Options},
             _From,
             State = #state{gun_pid = GunPid, streams = Streams, encoding = Encoding}) ->
-    Timeout = maps:get(timeout, Options, ?DEFAULT_TIMEOUT),
-    Headers = ?headers(atom_to_binary(Encoding, utf8), MessageType, Timeout, Metadata),
+    Timeout = maps:get(timeout, Options, infinity),
+    Headers = assemble_grpc_headers(atom_to_binary(Encoding, utf8),
+                                    MessageType,
+                                    Timeout,
+                                    Metadata
+                                   ),
     StreamRef = gun:post(GunPid, Path, Headers),
     Stream = #{st       => {open, idle},
                mqueue   => [],
@@ -500,6 +519,15 @@ do_connect(State = #state{server = {_, Host, Port}, gun_opts = GunOpts}) ->
                 {ok, _Protocol} ->
                     MRef = monitor(process, Pid),
                     State#state{mref = MRef, gun_pid = Pid};
+                {error, timeout} ->
+                    %% XXX: Hard-coded to get detailed reason, because gun
+                    %% does not expose it with a function
+                    RealReason = lists:last(
+                                   tuple_to_list(
+                                     element(2, sys:get_state(Pid)))
+                                  ),
+                    gun:close(Pid),
+                    {error, RealReason};
                 {error, Reason} ->
                     gun:close(Pid),
                     {error, Reason}
@@ -521,14 +549,28 @@ format_stream(#{st := St, recvbuff := Buff, mqueue := MQueue}) ->
     io_lib:format("#stream{st=~p, buff_size=~w, mqueue=~p}",
                   [St, byte_size(Buff), MQueue]).
 
-call(ChannPid, Msg) ->
-    call(ChannPid, Msg, ?DEFAULT_TIMEOUT).
-
 call(ChannPid, Msg, Timeout) ->
     gen_server:call(ChannPid, Msg, Timeout).
 
 pick(ChannName) ->
     gproc_pool:pick_worker(ChannName, self()).
+
+assemble_grpc_headers(Encoding, MessageType, Timeout, MD) ->
+    [{<<"content-type">>, <<"application/grpc+proto">>},
+     {<<"user-agent">>, <<"grpc-erlang/0.1.0">>},
+     {<<"grpc-encoding">>, Encoding},
+     {<<"grpc-message-type">>, MessageType},
+     {<<"te">>, <<"trailers">>}]
+    ++ assemble_grpc_timeout_header(Timeout)
+    ++ assemble_grpc_metadata_header(MD).
+
+assemble_grpc_timeout_header(infinity) ->
+    [];
+assemble_grpc_timeout_header(Timeout) ->
+    [{<<"grpc-timeout">>, ms2timeout(Timeout)}].
+
+assemble_grpc_metadata_header(MD) ->
+    maps:to_list(MD).
 
 ms2timeout(Ms) when Ms > 1000 ->
     [integer_to_list(Ms div 1000), $S];
