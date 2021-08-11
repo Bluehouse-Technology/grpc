@@ -25,28 +25,6 @@ jobs:
         escript $rebar3 dialyzer
         escript $rebar3 eunit
         escript $rebar3 ct
-  mac:
-    runs-on: macos-latest
-
-    steps:
-    - uses: actions/checkout@v1
-    - name: prepare
-      run: |
-        /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
-        brew install curl zip unzip gnu-sed erlang openssl@1.1
-        echo "/usr/local/bin:$PATH" >> ~/.bashrc
-    - name: install rebar3
-      run: |
-        curl -fsSL -o /usr/local/bin/rebar3 https://github.com/emqx/rebar3/releases/download/3.14.3-emqx-4/rebar3
-        chmod +x /usr/local/bin/rebar3
-    - name: Code analyze
-      run: |
-        make xref
-        make dialyzer
-    - name: Run tests
-      run: |
-        make eunit
-        make ct
 
   linux:
     runs-on: ubuntu-latest
