@@ -143,6 +143,7 @@ start_link(Pool, Id, Server, Opts) when is_map(Opts)  ->
 
 -spec unary(def(), request(), grpc:metadata(), options())
     -> {ok, response(), grpc:metadata()}
+     | {error, {grpc_status_name(), grpc_message()}}
      | {error, term()}.
 %% @doc Unary function call
 unary(Def, Req, Metadata, Options) ->
@@ -151,10 +152,12 @@ unary(Def, Req, Metadata, Options) ->
         {ok, GStream} ->
             _ = send(GStream, Req, fin),
             case recv(GStream, Timeout) of
-                %% XXX: ?? Recv a error trailers ??
                 {ok, [Resp]} when is_map(Resp) ->
                     {ok, [{eos, Trailers}]} = recv(GStream, Timeout),
                     {ok, Resp, Trailers};
+                {ok, [{eos, Trailers}]} ->
+                    %% Not data responed, only error trailers
+                    {error, trailers_to_error(Trailers)};
                 {ok, [Resp, Trailers]} ->
                     {ok, Resp, Trailers};
                 {error, _} = E -> E
@@ -539,6 +542,12 @@ do_connect(State = #state{server = {_, Host, Port}, gun_opts = GunOpts}) ->
 %%--------------------------------------------------------------------
 %% Helpers
 
+trailers_to_error(Trailers) ->
+    {grpc_utils:codename(
+       proplists:get_value(<<"grpc-status">>, Trailers, ?GRPC_STATUS_OK)
+      ),
+     proplists:get_value(<<"grpc-message">>, Trailers, <<>>)}.
+
 ensure_clean_timer(State = #state{tref = undefined}) ->
     TRef = erlang:start_timer(?STREAM_RESERVED_TIMEOUT,
                               self(),
@@ -549,8 +558,27 @@ format_stream(#{st := St, recvbuff := Buff, mqueue := MQueue}) ->
     io_lib:format("#stream{st=~p, buff_size=~w, mqueue=~p}",
                   [St, byte_size(Buff), MQueue]).
 
-call(ChannPid, Msg, Timeout) ->
-    gen_server:call(ChannPid, Msg, Timeout).
+%% copied from gen.erl and gen_server.erl
+call(Process, Request, Timeout) ->
+    Mref = erlang:monitor(process, Process),
+
+    %% OTP-21:
+    %% Auto-connect is asynchronous. But we still use 'noconnect' to make sure
+    %% we send on the monitored connection, and not trigger a new auto-connect.
+    %%
+    erlang:send(Process, {'$gen_call', {self(), Mref}, Request}, [noconnect]),
+
+    receive
+        {Mref, Reply} ->
+            erlang:demonitor(Mref, [flush]),
+            Reply;
+        {'DOWN', Mref, _, _, Reason} ->
+            exit(Reason)
+    after Timeout ->
+              erlang:demonitor(Mref, [flush]),
+              {error, {grpc_utils:codename(?GRPC_STATUS_DEADLINE_EXCEEDED),
+                       <<"Waiting for response timeout">>}}
+    end.
 
 pick(ChannName) ->
     gproc_pool:pick_worker(ChannName, self()).

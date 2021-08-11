@@ -35,8 +35,11 @@ test/grpc_route_guide_pb.erl
 test/routeguide_route_guide_bhvr.erl
 test/routeguide_route_guide_client.erl
 test/grpc_health_pb.erl
-test/grpc_reflection_pb.erl
 test/grpc_health_v_1_health_bhvr.erl
 test/grpc_health_v_1_health_client.erl
+test/grpc_reflection_pb.erl
 test/grpc_reflection_v_1alpha_server_reflection_bhvr.erl
 test/grpc_reflection_v_1alpha_server_reflection_client.erl
+test/grpc_test_pb.erl
+test/test_bhvr.erl
+test/test_client.erl

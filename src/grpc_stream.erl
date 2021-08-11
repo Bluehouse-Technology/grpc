@@ -100,7 +100,7 @@ init(Req, Options) ->
         {cowboy_req:binding(service, Req), cowboy_req:binding(method, Req)},
     case maps:get(RpcServicesAndName, Services, undefined) of
         undefined ->
-            shutdown(?GRPC_STATUS_NOT_FOUND, <<"">>, send_headers_first(St));
+            shutdown(?GRPC_STATUS_NOT_FOUND, <<"Service Not Found">>, send_headers_first(St));
         Defs ->
             case authenticate(Req, Options) of
                 {true, ClientInfo} ->
@@ -120,10 +120,12 @@ init(Req, Options) ->
                     catch T:R:Stk ->
                         ?LOG(error, "Stream process crashed: ~p, ~p, stacktrace: ~p~n",
                                      [T, R, Stk]),
-                        shutdown(?GRPC_STATUS_INTERNAL, <<"Internal error">>, St)
+                        shutdown(?GRPC_STATUS_INTERNAL,
+                                 <<"Internal Error: unexpected crash">>, St)
                     end;
                 _ ->
-                    shutdown(?GRPC_STATUS_UNAUTHENTICATED, <<"">>, St)
+                    shutdown(?GRPC_STATUS_UNAUTHENTICATED,
+                             <<"Not Authenticated">>, St)
             end
     end.
 
@@ -177,9 +179,11 @@ before_loop(St = #{is_unary := true}) ->
             {NRest, Frames} = grpc_frame:split(<<Rest/binary, Bytes/binary>>, Compression),
             InEvnts = [{handle_in, [Frame]} || Frame <- Frames],
             NSt = events(InEvnts, St#{rest => NRest, req => NReq}),
-            shutdown(?GRPC_STATUS_OK, <<"">>, NSt);
+            shutdown(?GRPC_STATUS_OK, <<>>, NSt);
         {error, _Reason} ->
-            shutdown(?GRPC_STATUS_INTERNAL, <<"Recv body">>, St)
+            shutdown(?GRPC_STATUS_INTERNAL,
+                     <<"Internal Error: failed to receive body bytes">>,
+                     St)
     end;
 
 before_loop(St = #{is_unary := false}) ->
@@ -188,14 +192,16 @@ before_loop(St = #{is_unary := false}) ->
         {Mod, Fun} = maps:get(handler, St),
         case apply(Mod, Fun, [St, Metadata]) of
             {ok, NSt} ->
-                shutdown(?GRPC_STATUS_OK, <<"">>, NSt);
+                shutdown(?GRPC_STATUS_OK, <<>>, NSt);
             {Code, Reason, NSt} ->
                 shutdown(Code, Reason, NSt)
         end
     catch T:R:Stk ->
         ?LOG(error, "Handle frame crashed: {~p, ~p} stacktrace: ~0p~n",
                      [T, R, Stk]),
-        shutdown(?GRPC_STATUS_INTERNAL, <<"RPC Execution Crashed">>, St)
+        shutdown(?GRPC_STATUS_INTERNAL,
+                 <<"Internal Error: crashed to execute callback function">>,
+                 St)
     end.
 
 events([], St) ->
@@ -212,10 +218,12 @@ events([{F, Args} | Events], St) ->
 
 shutdown(Status, Message, St) ->
     Req = maps:get(req, St),
-    Trailers = #{<<"grpc-status">> => Status,
-                 <<"grpc-message">> => Message
-                },
-    cowboy_send_trailers(Trailers, Req),
+    Trailers0 = #{<<"grpc-status">> => Status},
+    Trailers1 = case Message of
+                    <<>> -> Trailers0;
+                    _ -> Trailers0#{<<"grpc-message">> => Message}
+                end,
+    cowboy_send_trailers(Trailers1, Req),
     {ok, Req, []}.
 
 headers(St) ->

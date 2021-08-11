@@ -39,6 +39,8 @@
 
 -type grpc_message() :: binary().
 
+-type grpc_status_name() :: atom().
+
 %% Logger
 
 -define(LOG(Level, Format), ?LOG(Level, Format, [])).
