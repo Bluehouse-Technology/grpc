@@ -105,7 +105,7 @@ t_list_features(_) ->
     ?assertMatch([#{name := <<"City1">>},
                   #{name := <<"City2">>},
                   #{name := <<"City3">>},
-                  {eos,[{<<"grpc-message">>,<<>>},{<<"grpc-status">>,<<"0">>}]}], LoopRecv([])).
+                  {eos,[{<<"grpc-status">>,<<"0">>}]}], LoopRecv([])).
 
 t_record_route(_) ->
     {ok, Stream} = routeguide_route_guide_client:record_route(#{}, #{channel => ?CHANN_NAME}),
@@ -122,4 +122,4 @@ t_record_route(_) ->
                        end
                end,
     ?assertMatch([#{point_count := 3},
-                  {eos,[{<<"grpc-message">>,<<>>},{<<"grpc-status">>,<<"0">>}]}], LoopRecv([])).
+                  {eos,[{<<"grpc-status">>,<<"0">>}]}], LoopRecv([])).

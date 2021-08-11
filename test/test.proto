@@ -1,0 +1,19 @@
+// copy from: https://grpc.io/docs/what-is-grpc/introduction/
+
+syntax = "proto3";
+
+// The greeter service definition.
+service Test {
+  // Sends a greeting
+  rpc TestDeadline(DeadlineRequest) returns (TestReply) {}
+}
+
+// The request message containing the user's name.
+message DeadlineRequest {
+  int32 ms = 1;
+}
+
+// The response message containing the greetings
+message TestReply {
+  string message = 1;
+}
