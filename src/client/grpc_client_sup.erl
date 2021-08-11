@@ -33,7 +33,7 @@
 %% APIs
 %%--------------------------------------------------------------------
 
--spec create_channel_pool(term(), uri_string:uri_string(), grpc_client:grpc_opts())
+-spec create_channel_pool(term(), uri_string:uri_string(), grpc_client:client_opts())
     -> supervisor:startchild_ret().
 create_channel_pool(Name, URL, Opts) ->
     _ = application:ensure_all_started(gproc),

@@ -69,7 +69,7 @@
 -type eos_msg() :: {eos, list()}.
 
 -type options() ::
-        #{ channel := term()
+        #{ channel => term()
          %% The grpc-encoding method
          %% Default is identity
          , encoding => grpc_frame:encoding()
