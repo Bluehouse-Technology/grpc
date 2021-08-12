@@ -518,19 +518,10 @@ clean_hangs(Stream = #{hangs := Hangs}) ->
 do_connect(State = #state{server = {_, Host, Port}, gun_opts = GunOpts}) ->
     case gun:open(Host, Port, GunOpts) of
         {ok, Pid} ->
-            case gun:await_up(Pid) of
+            case gun_await_up_helper(Pid) of
                 {ok, _Protocol} ->
                     MRef = monitor(process, Pid),
                     State#state{mref = MRef, gun_pid = Pid};
-                {error, timeout} ->
-                    %% XXX: Hard-coded to get detailed reason, because gun
-                    %% does not expose it with a function
-                    RealReason = lists:last(
-                                   tuple_to_list(
-                                     element(2, sys:get_state(Pid)))
-                                  ),
-                    gun:close(Pid),
-                    {error, RealReason};
                 {error, Reason} ->
                     gun:close(Pid),
                     {error, Reason}
@@ -538,6 +529,33 @@ do_connect(State = #state{server = {_, Host, Port}, gun_opts = GunOpts}) ->
         {error, Reason} ->
             {error, Reason}
     end.
+
+gun_await_up_helper(Pid) ->
+    gun_await_up_helper(Pid, 50, undefined).
+gun_await_up_helper(_Pid, 0, LastRet) ->
+   LastRet ;
+gun_await_up_helper(Pid, Retry, LastRet) ->
+    case gun:await_up(Pid, 100) of
+        {ok, _} = Ret ->
+            Ret;
+        {error, timeout} ->
+            case gun_last_reason(Pid) of
+                undefined ->
+                    gun_await_up_helper(Pid, Retry-1, LastRet);
+                Reason ->
+                    {error, Reason}
+            end;
+        {error, _} = Ret ->
+            Ret
+    end.
+
+gun_last_reason(Pid) ->
+    %% XXX: Hard-coded to get detailed reason, because gun
+    %% does not expose it with a function
+    lists:last(
+      tuple_to_list(
+        element(2, sys:get_state(Pid)))
+     ).
 
 %%--------------------------------------------------------------------
 %% Helpers
