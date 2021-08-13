@@ -178,8 +178,12 @@ before_loop(St = #{is_unary := true}) ->
             Compression = maps:get(compression, St),
             {NRest, Frames} = grpc_frame:split(<<Rest/binary, Bytes/binary>>, Compression),
             InEvnts = [{handle_in, [Frame]} || Frame <- Frames],
-            NSt = events(InEvnts, St#{rest => NRest, req => NReq}),
-            shutdown(?GRPC_STATUS_OK, <<>>, NSt);
+            case events(InEvnts, St#{rest => NRest, req => NReq}) of
+                {shutdown, Code, Message, NSt} ->
+                    shutdown(Code, Message, NSt);
+                NSt ->
+                    shutdown(?GRPC_STATUS_OK, <<"">>, NSt)
+            end;
         {error, _Reason} ->
             shutdown(?GRPC_STATUS_INTERNAL,
                      <<"Internal Error: failed to receive body bytes">>,
@@ -209,7 +213,7 @@ events([], St) ->
 events([{F, Args} | Events], St) ->
     case apply(?MODULE, F, Args ++ [St]) of
         {shutdown, Code, Message} ->
-            shutdown(Code, Message, St);
+            {shutdown, Code, Message, St};
         {ok, NEvents, NSt} ->
             events(NEvents ++ Events, NSt);
         {ok, NSt} ->
