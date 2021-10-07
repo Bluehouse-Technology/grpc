@@ -182,22 +182,27 @@ authenticated(#{cowboy_req := Req} = Stream, Options) ->
 
 get_function(Req, #{services := Services} = _Options, Stream) ->
     QualifiedService = cowboy_req:binding(service, Req), 
-    Service = binary_to_existing_atom(lists:last(binary:split(QualifiedService, 
+    Service = bin_to_existing_atom(lists:last(binary:split(QualifiedService, 
                                                               <<".">>, [global]))),
     #{Service := #{handler := Handler} = Spec} = Services,
     {module, _} = code:ensure_loaded(Handler),
     HandlerState = maps:get(handler_state, Spec, undefined),
     DecoderModule = maps:get(decoder, Spec, Handler:decoder()),
     {module, _} = code:ensure_loaded(DecoderModule),
-    Rpc = binary_to_existing_atom(cowboy_req:binding(method, Req)),
+    Rpc = bin_to_existing_atom(cowboy_req:binding(method, Req)),
     Stream#{decoder => DecoderModule,
             service => Service,
             handler => Handler,
             handler_state => HandlerState,
             rpc => Rpc}.
 
-binary_to_existing_atom(B) ->
-    list_to_existing_atom(binary_to_list(B)).
+bin_to_existing_atom(B) when is_binary(B) ->
+    case catch erlang:binary_to_existing_atom(B) of
+	{'EXIT', {undef, _}} ->
+	    list_to_existing_atom(binary_to_list(B));
+	A ->
+	    A
+    end.
 
 read_frames(#{cowboy_req := Req,
               encoding := Encoding} = Stream) ->
