@@ -29,11 +29,14 @@
 
 -define(APP_SUP, grpc_sup).
 
+-type options() :: grpc_client:client_opts()
+                 | #{pool_size => non_neg_integer()}.
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
--spec create_channel_pool(term(), uri_string:uri_string(), grpc_client:client_opts())
+-spec create_channel_pool(term(), uri_string:uri_string(), options())
     -> supervisor:startchild_ret().
 create_channel_pool(Name, URL, Opts) ->
     _ = application:ensure_all_started(gproc),
@@ -67,7 +70,7 @@ start_link(Name, Server, Opts) ->
     supervisor:start_link(?MODULE, [Name, Server, Opts]).
 
 init([Name, Server, Opts]) ->
-    Size = erlang:system_info(schedulers),
+    Size = pool_size(Opts),
     ok = ensure_pool(Name, hash, [{size, Size}]),
     {ok, {{one_for_one, 10, 3600}, [
         begin
@@ -93,3 +96,6 @@ ensure_pool_worker(Name, WorkName, Slot) ->
     catch
         error:exists -> ok
     end.
+
+pool_size(Opts) ->
+    maps:get(pool_size, Opts, erlang:system_info(schedulers)).
