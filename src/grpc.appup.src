@@ -5,7 +5,8 @@
   {"0.6.2",
    [{add_module, grpc_utils},
     {load_module, grpc_client, brutal_purge, soft_purge, []},
-    {load_module, grpc_stream, brutal_purge, soft_purge, []}]},
+    {load_module, grpc_stream, brutal_purge, soft_purge, []},
+    {load_module, grpc_client_sup, brutal_purge, soft_purge, []}]},
   {<<".*">>, []}
  ],
  [{"0.6.3",
@@ -13,7 +14,8 @@
   {"0.6.2",
    [{delete_module, grpc_utils},
     {load_module, grpc_client, brutal_purge, soft_purge, []},
-    {load_module, grpc_stream, brutal_purge, soft_purge, []}]},
+    {load_module, grpc_stream, brutal_purge, soft_purge, []},
+    {load_module, grpc_client_sup, brutal_purge, soft_purge, []}]},
   {<<".*">>, []}
  ]
 }.

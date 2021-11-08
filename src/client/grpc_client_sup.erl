@@ -54,10 +54,10 @@ create_channel_pool(Name, URL, Opts) ->
     end.
 
 -spec stop_channel_pool(term()) -> ok.
-
 stop_channel_pool(Name) ->
     case supervisor:terminate_child(?APP_SUP, Name) of
         ok ->
+            _ = gproc_pool:force_delete(Name),
             ok = supervisor:delete_child(?APP_SUP, Name);
         R -> R
     end.
