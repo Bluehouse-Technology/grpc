@@ -1,6 +1,6 @@
 {application, grpc,
  [{description, "An Erlang implementation of gRPC"},
-  {vsn, "0.6.3"},
+  {vsn, "0.6.4"},
   {registered, []},
   {mod, {grpc_app, []}},
   {applications, [kernel,stdlib,gproc,cowboy,gun]},
