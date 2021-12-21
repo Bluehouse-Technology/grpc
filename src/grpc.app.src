@@ -1,7 +1,7 @@
 {application,grpc,
- [{description,"gRPC in Erlang"},
-  {vsn,"0.2.0"},
-  {modules,[]},
-  {registered, []},
-  {env, []},
-  {applications,[gpb,cowboy]}]}.
+             [{description,"gRPC in Erlang"},
+              {vsn,"0.2.0"},
+              {modules,[]},
+              {registered,[]},
+              {env,[]},
+              {applications,[gpb,cowboy]}]}.
