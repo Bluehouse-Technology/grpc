@@ -1,3 +1,4 @@
+%% -*- mode: erlang -*-
 {application, route_guide,
  [{description, "An OTP application"},
   {vsn, "0.1.0"},
