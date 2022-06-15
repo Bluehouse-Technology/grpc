@@ -107,7 +107,8 @@
 -define(DEFAULT_GUN_OPTS,
         #{protocols => [http2],
           connect_timeout => 5000,
-          http2_opts => #{keepalive => 60000}
+          http2_opts => #{keepalive => 60000},
+          transport_opts => [{nodelay, true}]
          }).
 
 -define(STREAM_RESERVED_TIMEOUT, 15000).
