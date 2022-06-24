@@ -171,7 +171,10 @@ unary(Def, Req, Metadata, Options) ->
      | {error, term()}.
 
 open(Def, Metadata, Options) ->
-    ClientPid = pick(maps:get(channel, Options, undefined)),
+    ClientPid = pick(
+                  maps:get(channel, Options, undefined),
+                  maps:get(key_dispatch, Options, self())
+                 ),
     case call(ClientPid, {open, Def, Metadata, Options}, connect_timeout(Options)) of
         {ok, StreamRef} ->
             {ok, #{stream_ref => StreamRef, client_pid => ClientPid, def => Def}};
@@ -599,8 +602,8 @@ call(Process, Request, Timeout) ->
                        <<"Waiting for response timeout">>}}
     end.
 
-pick(ChannName) ->
-    gproc_pool:pick_worker(ChannName, self()).
+pick(ChannName, Key) ->
+    gproc_pool:pick_worker(ChannName, Key).
 
 assemble_grpc_headers(Encoding, MessageType, Timeout, MD) ->
     [{<<"content-type">>, <<"application/grpc+proto">>},
