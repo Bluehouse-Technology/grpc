@@ -302,7 +302,7 @@ handle_call(_Req = {send, StreamRef, Bytes, IsFin},
     case maps:get(StreamRef, Streams, undefined) of
         Stream = #{st := {open, _RS}} ->
             NBytes = grpc_frame:encode(Encoding, Bytes),
-            NStream = send_data(NBytes, IsFin, StreamRef, Stream, GunPid, ClientOpts),
+            NStream = maybe_send_data(NBytes, IsFin, StreamRef, Stream, GunPid, ClientOpts),
             NStreams = maps:put(StreamRef, NStream, Streams),
             {reply, ok, ensure_flush_timer(State#state{streams = NStreams})};
         #{st := {closed, _RS}} ->
@@ -618,7 +618,7 @@ gun_last_reason(Pid) ->
 flush_streams(Nowts, State = #state{streams = Streams,
                                     gun_pid = GunPid,
                                     client_opts = ClientOpts}) ->
-    Intv = maps:get(streaming_batch_delay_ms, ClientOpts, ?DEFAULT_STREAMING_DELAY),
+    Intv = maps:get(stream_batch_delay_ms, ClientOpts, ?DEFAULT_STREAMING_DELAY),
     NStreams =
         maps:map(
           fun(_, Stream = #{sendbuff_size := 0}) ->
@@ -636,7 +636,7 @@ maybe_send_data(Bytes, IsFin, StreamRef,
           Stream = #{st := {_, _RS},
                      sendbuff := IolistData0,
                      sendbuff_size := BufferSize0}, GunPid, ClientOpts) ->
-    BatchSize = maps:get(streaming_batch_size, ClientOpts, ?DEFAULT_STREAMING_BATCH_SIZE),
+    BatchSize = maps:get(stream_batch_size, ClientOpts, ?DEFAULT_STREAMING_BATCH_SIZE),
     IolistData = [Bytes | IolistData0],
     IolistSize = BufferSize0 + iolist_size(Bytes),
     case IsFin == fin orelse IolistSize >= BatchSize of
@@ -680,9 +680,9 @@ ensure_flush_timer(State = #state{streams = Streams,
                                   flush_timer_ref = undefined,
                                   client_opts = ClientOpts
                                  }) ->
-    case have_buffered_bytes(maps:values(Streams)) of
+    case have_buffered_bytes(Streams) of
         true ->
-            Intv = maps:get(streaming_batch_delay_ms, ClientOpts, ?DEFAULT_STREAMING_DELAY),
+            Intv = maps:get(stream_batch_delay_ms, ClientOpts, ?DEFAULT_STREAMING_DELAY),
             TRef = erlang:start_timer(Intv, self(), flush_streams_sendbuff),
             State#state{flush_timer_ref = TRef};
         _ ->
@@ -691,12 +691,17 @@ ensure_flush_timer(State = #state{streams = Streams,
 ensure_flush_timer(State) ->
     State.
 
-have_buffered_bytes([]) ->
-    false;
-have_buffered_bytes([#{sendbuff_size := 0} | Streams]) ->
-    have_buffered_bytes(Streams);
-have_buffered_bytes([#{sendbuff_size := S} | _]) when S > 0 ->
-    true.
+have_buffered_bytes(Streams) when is_map(Streams) ->
+    have_buffered_bytes(maps:next(maps:iterator(Streams)));
+
+have_buffered_bytes({_StreamRef, #{sendbuff_size := 0}, I}) ->
+    have_buffered_bytes(maps:next(I));
+have_buffered_bytes({_StreamRef, #{sendbuff_size := S}, _I}) when S > 0 ->
+    true;
+have_buffered_bytes({_StreamRef, #{sendbuff_size := S}, none}) ->
+    S > 0;
+have_buffered_bytes(none) ->
+    false.
 
 format_stream(#{st := St, recvbuff := Buff, mqueue := MQueue}) ->
     io_lib:format("#stream{st=~p, buff_size=~w, mqueue=~p}",
