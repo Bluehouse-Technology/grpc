@@ -105,8 +105,8 @@
 -type client_opts() ::
         #{ encoding => grpc_frame:encoding()
          , gun_opts => gun:opts()
-         , streaming_batch_size => non_neg_integer()
-         , streaming_batch_delay_ms => non_neg_integer()
+         , stream_batch_size => non_neg_integer()
+         , stream_batch_delay_ms => non_neg_integer()
          }.
 
 -define(DEFAULT_GUN_OPTS,
@@ -118,7 +118,7 @@
 
 -define(STREAM_RESERVED_TIMEOUT, 15000).
 
--define(DEFAULT_STREAMING_DELAY, 40).
+-define(DEFAULT_STREAMING_DELAY, 20).
 -define(DEFAULT_STREAMING_BATCH_SIZE, 16384).
 
 -type stream_state() :: idle | open | closed.
@@ -344,9 +344,10 @@ handle_info({timeout, TRef, clean_stopped_stream},
     {noreply, ensure_clean_timer(State#state{streams = NStreams, tref = undefined})};
 
 handle_info({timeout, TRef, flush_streams_sendbuff},
-            State = #state{flush_timer_ref = TRef}) ->
+            State0 = #state{flush_timer_ref = TRef}) ->
+    State = State0#state{flush_timer_ref = undefined},
     Nowts = erlang:system_time(millisecond),
-    {noreply, ensure_flush_timer(flush_streams(Nowts, State#state{flush_timer_ref = undefined}))};
+    {noreply, ensure_flush_timer(flush_streams(Nowts, State))};
 
 handle_info({gun_up, GunPid, http2}, State = #state{gun_pid = GunPid}) ->
     {noreply, State};
@@ -631,7 +632,7 @@ flush_streams(Nowts, State = #state{streams = Streams,
           end, Streams),
    State#state{streams = NStreams}.
 
-send_data(Bytes, IsFin, StreamRef,
+maybe_send_data(Bytes, IsFin, StreamRef,
           Stream = #{st := {_, _RS},
                      sendbuff := IolistData0,
                      sendbuff_size := BufferSize0}, GunPid, ClientOpts) ->
