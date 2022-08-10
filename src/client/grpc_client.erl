@@ -55,6 +55,7 @@
           %% Clean timer reference
           tref :: undefined | reference(),
           %% Encoding for gRPC packets
+          %% XXX: Bad impl.
           encoding :: grpc_frame:encoding(),
           %% Streams
           streams :: #{reference() := stream()},
