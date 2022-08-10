@@ -409,8 +409,39 @@ handle_info(Info, State = #state{streams = Streams}) when is_tuple(Info) ->
 terminate(_Reason, #state{pool = Pool, id = Id}) ->
     gproc_pool:disconnect_worker(Pool, {Pool, Id}).
 
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+%% downgrade to Vsn
+code_change({down, _Vsn},
+            State = #state{
+                       client_opts = ClientOpts,
+                       flush_timer_ref = TRef
+                      }, [Vsn]) ->
+    NState =
+        case re:run(Vsn, "0\\.6\\.[0-6]$", [{capture, none}]) of
+            match ->
+                GunOpts = maps:get(gun_opts, ClientOpts, ?DEFAULT_GUN_OPTS),
+                _ = is_reference(TRef) andalso erlang:cancel_timer(TRef),
+                list_to_tuple(
+                  lists:droplast(lists:droplast(tuple_to_list(State)))
+                  ++ [GunOpts]
+                 );
+            _ -> State
+        end,
+    {ok, NState};
+%% upgrade from Vsn
+code_change(_Vsn,
+            {state,
+             Pool, Id, Server, GunPid, MRef,
+             TRef, Encoding, Streams, GunOpts}, [Vsn]) ->
+    NState =
+        case re:run(Vsn, "0\\.6\\.[0-6]$", [{capture, none}]) of
+            match ->
+                ClientOpts = #{encoding => Encoding,
+                               gun_opts => GunOpts},
+                {state, Pool, Id, Server, GunPid, MRef,
+                 TRef, Encoding, Streams, ClientOpts, undefined};
+            _ -> error({bad_vsn_in_code_change, Vsn})
+        end,
+    {ok, NState}.
 
 %%--------------------------------------------------------------------
 %% Handle stream handle
