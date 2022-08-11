@@ -141,6 +141,8 @@
                        , def := def()
                        }.
 
+-dialyzer({nowarn_function, [have_buffered_bytes/1]}).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -302,7 +304,12 @@ handle_call(_Req = {send, StreamRef, Bytes, IsFin},
     case maps:get(StreamRef, Streams, undefined) of
         Stream = #{st := {open, _RS}} ->
             NBytes = grpc_frame:encode(Encoding, Bytes),
-            NStream = maybe_send_data(NBytes, IsFin, StreamRef, Stream, GunPid, ClientOpts),
+            BatchSize = maps:get(
+                          stream_batch_size,
+                          ClientOpts,
+                          ?DEFAULT_STREAMING_BATCH_SIZE
+                         ),
+            NStream = maybe_send_data(NBytes, IsFin, StreamRef, Stream, GunPid, BatchSize),
             NStreams = maps:put(StreamRef, NStream, Streams),
             {reply, ok, ensure_flush_timer(State#state{streams = NStreams})};
         #{st := {closed, _RS}} ->
@@ -421,8 +428,10 @@ code_change({down, _Vsn},
             match ->
                 GunOpts = maps:get(gun_opts, ClientOpts, ?DEFAULT_GUN_OPTS),
                 _ = is_reference(TRef) andalso erlang:cancel_timer(TRef),
+                %% flush all streams to avoid buffered data lost
+                State1 = flush_streams(infinity, State),
                 list_to_tuple(
-                  lists:droplast(lists:droplast(tuple_to_list(State)))
+                  lists:droplast(lists:droplast(tuple_to_list(State1)))
                   ++ [GunOpts]
                  );
             _ -> State
@@ -438,8 +447,16 @@ code_change(_Vsn,
             match ->
                 ClientOpts = #{encoding => Encoding,
                                gun_opts => GunOpts},
+                NStreams = maps:map(
+                             fun(_, Stream) ->
+                                Stream#{
+                                  sendbuff => [],
+                                  sendbuff_size => 0,
+                                  sendbuff_last_flush_ts => 0
+                                 }
+                             end, Streams),
                 {state, Pool, Id, Server, GunPid, MRef,
-                 TRef, Encoding, Streams, ClientOpts, undefined};
+                 TRef, Encoding, NStreams, ClientOpts, undefined};
             _ -> error({bad_vsn_in_code_change, Vsn})
         end,
     {ok, NState}.
@@ -622,21 +639,22 @@ flush_streams(Nowts, State = #state{streams = Streams,
     NStreams =
         maps:map(
           fun(_, Stream = #{sendbuff_size := 0}) ->
-              Stream;
+                  Stream;
              (_, Stream = #{sendbuff_last_flush_ts := Ts})
                when Nowts < (Ts + Intv) ->
                   Stream;
-             (StreamRef, Stream = #{sendbuff_last_flush_ts := Ts})
+             (StreamRef, Stream = #{sendbuff := IolistData,
+                                    sendbuff_last_flush_ts := Ts})
                when Nowts >= (Ts + Intv) ->
-                  flush_data(Nowts, StreamRef, Stream, GunPid)
+                  ok = gun:data(GunPid, StreamRef, nofin, lists:reverse(IolistData)),
+                  Stream#{sendbuff := [], sendbuff_size := 0, sendbuff_last_flush_ts := Nowts}
           end, Streams),
    State#state{streams = NStreams}.
 
 maybe_send_data(Bytes, IsFin, StreamRef,
           Stream = #{st := {_, _RS},
                      sendbuff := IolistData0,
-                     sendbuff_size := BufferSize0}, GunPid, ClientOpts) ->
-    BatchSize = maps:get(stream_batch_size, ClientOpts, ?DEFAULT_STREAMING_BATCH_SIZE),
+                     sendbuff_size := BufferSize0}, GunPid, BatchSize) ->
     IolistData = [Bytes | IolistData0],
     IolistSize = BufferSize0 + iolist_size(Bytes),
     case IsFin == fin orelse IolistSize >= BatchSize of
@@ -657,12 +675,6 @@ maybe_send_data(Bytes, IsFin, StreamRef,
         false ->
             Stream#{sendbuff := IolistData, sendbuff_size := IolistSize}
     end.
-
-flush_data(Nowts, StreamRef,
-           Stream = #{st := {_, _RS},
-                      sendbuff := IolistData}, GunPid) ->
-    ok = gun:data(GunPid, StreamRef, nofin, lists:reverse(IolistData)),
-    Stream#{sendbuff := [], sendbuff_size := 0, sendbuff_last_flush_ts := Nowts}.
 
 trailers_to_error(Trailers) ->
     {grpc_utils:codename(
