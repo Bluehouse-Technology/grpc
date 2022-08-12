@@ -55,11 +55,14 @@
           %% Clean timer reference
           tref :: undefined | reference(),
           %% Encoding for gRPC packets
+          %% XXX: Bad impl.
           encoding :: grpc_frame:encoding(),
           %% Streams
           streams :: #{reference() := stream()},
-          %% Initial gun options
-          gun_opts :: gun:opts()
+          %% Client options
+          client_opts :: client_opts(),
+          %% Flush timer reference
+          flush_timer_ref :: undefined | reference()
          }).
 
 -type request() :: map().
@@ -102,6 +105,8 @@
 -type client_opts() ::
         #{ encoding => grpc_frame:encoding()
          , gun_opts => gun:opts()
+         , stream_batch_size => non_neg_integer()
+         , stream_batch_delay_ms => non_neg_integer()
          }.
 
 -define(DEFAULT_GUN_OPTS,
@@ -113,6 +118,9 @@
 
 -define(STREAM_RESERVED_TIMEOUT, 15000).
 
+-define(DEFAULT_STREAMING_DELAY, 20).
+-define(DEFAULT_STREAMING_BATCH_SIZE, 16384).
+
 -type stream_state() :: idle | open | closed.
 
 -type stream() :: #{ st       := {LocalState :: stream_state(),
@@ -120,6 +128,9 @@
                    , mqueue   := list()
                    , hangs    := list()
                    , recvbuff := binary()
+                   , sendbuff := iolist()
+                   , sendbuff_size := non_neg_integer()
+                   , sendbuff_last_flush_ts := non_neg_integer()
                    , encoding := grpc_frame:encoding()
                    }.
 
@@ -129,6 +140,8 @@
                        , stream_ref := reference()
                        , def := def()
                        }.
+
+-dialyzer({nowarn_function, [have_buffered_bytes/1]}).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -234,10 +247,13 @@ recv(#{def        := Def,
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([Pool, Id, Server = {_, _, _}, Opts]) ->
-    Encoding = maps:get(encoding, Opts, identity),
-    GunOpts = maps:get(gun_opts, Opts, #{}),
-    NGunOpts = maps:merge(?DEFAULT_GUN_OPTS, GunOpts),
+init([Pool, Id, Server = {_, _, _}, ClientOpts0]) ->
+    Encoding = maps:get(encoding, ClientOpts0, identity),
+    Opts = maps:put(
+             gun_opts,
+             maps:merge(?DEFAULT_GUN_OPTS, maps:get(gun_opts, ClientOpts0, #{})),
+             ClientOpts0
+            ),
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, ensure_clean_timer(
            #state{
@@ -247,7 +263,7 @@ init([Pool, Id, Server = {_, _, _}, Opts]) ->
               server = Server,
               encoding = Encoding,
               streams = #{},
-              gun_opts = NGunOpts})}.
+              client_opts = Opts})}.
 
 handle_call(Req, From, State = #state{gun_pid = undefined}) ->
     case do_connect(State) of
@@ -273,6 +289,9 @@ handle_call({open, #{path := Path,
                mqueue   => [],
                hangs    => [],
                recvbuff => <<>>,
+               sendbuff => [],
+               sendbuff_size => 0,
+               sendbuff_last_flush_ts => 0,
                encoding => Encoding
               },
     NState = State#state{streams = Streams#{StreamRef => Stream}},
@@ -280,18 +299,19 @@ handle_call({open, #{path := Path,
 
 handle_call(_Req = {send, StreamRef, Bytes, IsFin},
             _From,
-            State = #state{gun_pid = GunPid, streams = Streams, encoding = Encoding}) ->
+            State = #state{gun_pid = GunPid, streams = Streams, encoding = Encoding,
+                           client_opts = ClientOpts}) ->
     case maps:get(StreamRef, Streams, undefined) of
         Stream = #{st := {open, _RS}} ->
             NBytes = grpc_frame:encode(Encoding, Bytes),
-            gun:data(GunPid, StreamRef, IsFin, NBytes),
-            case IsFin of
-                fin ->
-                    NStreams = maps:put(StreamRef, Stream#{st => {closed, _RS}}, Streams),
-                    {reply, ok, State#state{streams = NStreams}};
-                _ ->
-                    {reply, ok, State}
-            end;
+            BatchSize = maps:get(
+                          stream_batch_size,
+                          ClientOpts,
+                          ?DEFAULT_STREAMING_BATCH_SIZE
+                         ),
+            NStream = maybe_send_data(NBytes, IsFin, StreamRef, Stream, GunPid, BatchSize),
+            NStreams = maps:put(StreamRef, NStream, Streams),
+            {reply, ok, ensure_flush_timer(State#state{streams = NStreams})};
         #{st := {closed, _RS}} ->
             {reply, {error, closed}, State};
         undefined ->
@@ -329,6 +349,12 @@ handle_info({timeout, TRef, clean_stopped_stream},
                     (_, _) -> true
                  end, Streams),
     {noreply, ensure_clean_timer(State#state{streams = NStreams, tref = undefined})};
+
+handle_info({timeout, TRef, flush_streams_sendbuff},
+            State0 = #state{flush_timer_ref = TRef}) ->
+    State = State0#state{flush_timer_ref = undefined},
+    Nowts = erlang:system_time(millisecond),
+    {noreply, ensure_flush_timer(flush_streams(Nowts, State))};
 
 handle_info({gun_up, GunPid, http2}, State = #state{gun_pid = GunPid}) ->
     {noreply, State};
@@ -391,8 +417,49 @@ handle_info(Info, State = #state{streams = Streams}) when is_tuple(Info) ->
 terminate(_Reason, #state{pool = Pool, id = Id}) ->
     gproc_pool:disconnect_worker(Pool, {Pool, Id}).
 
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+%% downgrade to Vsn
+code_change({down, _Vsn},
+            State = #state{
+                       client_opts = ClientOpts,
+                       flush_timer_ref = TRef
+                      }, [Vsn]) ->
+    NState =
+        case re:run(Vsn, "0\\.6\\.[0-6]$", [{capture, none}]) of
+            match ->
+                GunOpts = maps:get(gun_opts, ClientOpts, ?DEFAULT_GUN_OPTS),
+                _ = is_reference(TRef) andalso erlang:cancel_timer(TRef),
+                %% flush all streams to avoid buffered data lost
+                State1 = flush_streams(infinity, State),
+                list_to_tuple(
+                  lists:droplast(lists:droplast(tuple_to_list(State1)))
+                  ++ [GunOpts]
+                 );
+            _ -> State
+        end,
+    {ok, NState};
+%% upgrade from Vsn
+code_change(_Vsn,
+            {state,
+             Pool, Id, Server, GunPid, MRef,
+             TRef, Encoding, Streams, GunOpts}, [Vsn]) ->
+    NState =
+        case re:run(Vsn, "0\\.6\\.[0-6]$", [{capture, none}]) of
+            match ->
+                ClientOpts = #{encoding => Encoding,
+                               gun_opts => GunOpts},
+                NStreams = maps:map(
+                             fun(_, Stream) ->
+                                Stream#{
+                                  sendbuff => [],
+                                  sendbuff_size => 0,
+                                  sendbuff_last_flush_ts => 0
+                                 }
+                             end, Streams),
+                {state, Pool, Id, Server, GunPid, MRef,
+                 TRef, Encoding, NStreams, ClientOpts, undefined};
+            _ -> error({bad_vsn_in_code_change, Vsn})
+        end,
+    {ok, NState}.
 
 %%--------------------------------------------------------------------
 %% Handle stream handle
@@ -519,7 +586,8 @@ clean_hangs(Stream = #{hangs := Hangs}) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-do_connect(State = #state{server = {_, Host, Port}, gun_opts = GunOpts}) ->
+do_connect(State = #state{server = {_, Host, Port}, client_opts = ClientOpts}) ->
+    GunOpts = maps:get(gun_opts, ClientOpts, #{}),
     case gun:open(Host, Port, GunOpts) of
         {ok, Pid} ->
             case gun_await_up_helper(Pid) of
@@ -564,6 +632,50 @@ gun_last_reason(Pid) ->
 %%--------------------------------------------------------------------
 %% Helpers
 
+flush_streams(Nowts, State = #state{streams = Streams,
+                                    gun_pid = GunPid,
+                                    client_opts = ClientOpts}) ->
+    Intv = maps:get(stream_batch_delay_ms, ClientOpts, ?DEFAULT_STREAMING_DELAY),
+    NStreams =
+        maps:map(
+          fun(_, Stream = #{sendbuff_size := 0}) ->
+                  Stream;
+             (_, Stream = #{sendbuff_last_flush_ts := Ts})
+               when Nowts < (Ts + Intv) ->
+                  Stream;
+             (StreamRef, Stream = #{sendbuff := IolistData,
+                                    sendbuff_last_flush_ts := Ts})
+               when Nowts >= (Ts + Intv) ->
+                  ok = gun:data(GunPid, StreamRef, nofin, lists:reverse(IolistData)),
+                  Stream#{sendbuff := [], sendbuff_size := 0, sendbuff_last_flush_ts := Nowts}
+          end, Streams),
+   State#state{streams = NStreams}.
+
+maybe_send_data(Bytes, IsFin, StreamRef,
+          Stream = #{st := {_, _RS},
+                     sendbuff := IolistData0,
+                     sendbuff_size := BufferSize0}, GunPid, BatchSize) ->
+    IolistData = [Bytes | IolistData0],
+    IolistSize = BufferSize0 + iolist_size(Bytes),
+    case IsFin == fin orelse IolistSize >= BatchSize of
+        true ->
+            NData = lists:reverse(IolistData),
+            ok = gun:data(GunPid, StreamRef, IsFin, NData),
+            case IsFin of
+                fin ->
+                    Stream#{st := {closed, _RS},
+                            sendbuff := [],
+                            sendbuff_size := 0
+                           };
+                _ ->
+                    Stream#{sendbuff := [],
+                            sendbuff_size := 0
+                           }
+            end;
+        false ->
+            Stream#{sendbuff := IolistData, sendbuff_size := IolistSize}
+    end.
+
 trailers_to_error(Trailers) ->
     {grpc_utils:codename(
        proplists:get_value(<<"grpc-status">>, Trailers, ?GRPC_STATUS_OK)
@@ -575,6 +687,33 @@ ensure_clean_timer(State = #state{tref = undefined}) ->
                               self(),
                               clean_stopped_stream),
     State#state{tref = TRef}.
+
+ensure_flush_timer(State = #state{streams = Streams,
+                                  flush_timer_ref = undefined,
+                                  client_opts = ClientOpts
+                                 }) ->
+    case have_buffered_bytes(Streams) of
+        true ->
+            Intv = maps:get(stream_batch_delay_ms, ClientOpts, ?DEFAULT_STREAMING_DELAY),
+            TRef = erlang:start_timer(Intv, self(), flush_streams_sendbuff),
+            State#state{flush_timer_ref = TRef};
+        _ ->
+            State
+    end;
+ensure_flush_timer(State) ->
+    State.
+
+have_buffered_bytes(Streams) when is_map(Streams) ->
+    have_buffered_bytes(maps:next(maps:iterator(Streams)));
+
+have_buffered_bytes({_StreamRef, #{sendbuff_size := 0}, I}) ->
+    have_buffered_bytes(maps:next(I));
+have_buffered_bytes({_StreamRef, #{sendbuff_size := S}, _I}) when S > 0 ->
+    true;
+have_buffered_bytes({_StreamRef, #{sendbuff_size := S}, none}) ->
+    S > 0;
+have_buffered_bytes(none) ->
+    false.
 
 format_stream(#{st := St, recvbuff := Buff, mqueue := MQueue}) ->
     io_lib:format("#stream{st=~p, buff_size=~w, mqueue=~p}",
