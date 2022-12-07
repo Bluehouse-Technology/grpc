@@ -28,7 +28,7 @@
    [{update, grpc_client, {advanced, ["0.6.3"]}},
     {load_module, grpc_client_sup, brutal_purge, soft_purge, []}]},
   {"0.6.2",
-   [{add_module, grpc_utils},
+   [{delete_module, grpc_utils},
     {update, grpc_client, {advanced, ["0.6.2"]}},
     {load_module, grpc_stream, brutal_purge, soft_purge, []},
     {load_module, grpc_client_sup, brutal_purge, soft_purge, []}]},
