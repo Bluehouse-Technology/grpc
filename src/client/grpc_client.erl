@@ -676,6 +676,8 @@ maybe_send_data(Bytes, IsFin, StreamRef,
             Stream#{sendbuff := IolistData, sendbuff_size := IolistSize}
     end.
 
+trailers_to_error([]) ->
+    stream_closed_without_any_response;
 trailers_to_error(Trailers) ->
     {grpc_utils:codename(
        proplists:get_value(<<"grpc-status">>, Trailers, ?GRPC_STATUS_OK)

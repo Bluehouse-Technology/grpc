@@ -1,6 +1,8 @@
 %% -*- mode: erlang -*-
-{"0.6.7",
- [{"0.6.6",
+{"0.6.8",
+ [{"0.6.7",
+   [{load_module, grpc_client, brutal_purge, soft_purge, []}]},
+  {"0.6.6",
    [{update, grpc_client, {advanced, ["0.6.6"]}}]},
   {"0.6.5",
    [{update, grpc_client, {advanced, ["0.6.5"]}}]},
@@ -17,7 +19,9 @@
     {load_module, grpc_client_sup, brutal_purge, soft_purge, []}]},
   {<<".*">>, []}
   ],
- [{"0.6.6",
+ [{"0.6.7",
+   [{load_module, grpc_client, brutal_purge, soft_purge, []}]},
+  {"0.6.6",
    [{update, grpc_client, {advanced, ["0.6.6"]}}]},
   {"0.6.5",
    [{update, grpc_client, {advanced, ["0.6.5"]}}]},
