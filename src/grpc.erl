@@ -110,7 +110,7 @@ compile_service_rules(Services0) ->
         end
     end, #{}, Services).
 
--spec stop_server(any()) -> ok | {error, term()}.
+-spec stop_server(any()) -> ok | {error, not_found}.
 
 %% @doc Stop a gRPC server
 stop_server(Name) ->

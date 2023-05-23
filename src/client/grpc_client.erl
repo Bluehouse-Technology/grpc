@@ -509,10 +509,14 @@ stream_handle({read, From, _StreamRef, _EndTs},
 
 %% gun msgs
 
-stream_handle({gun_response, _GunPid, _StreamRef, nofin, _Status, _Headers},
+stream_handle({gun_response, _GunPid, _StreamRef, IsFin, _Status, Headers},
               Stream = #{st := {_LS, idle}}) ->
-    %% TODO: error handling?
-    {ok, Stream#{st => {_LS, open}}};
+    case IsFin of
+        nofin ->
+            {ok, Stream#{st => {_LS, open}}};
+        fin ->
+            handle_remote_closed(Headers, Stream)
+    end;
 
 stream_handle({gun_trailers, _GunPid, _StreamRef, Trailers},
               Stream = #{st := {_LS, open}}) ->
