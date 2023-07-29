@@ -504,6 +504,10 @@ stream_handle({read, From, _StreamRef, _EndTs},
     {ok, [{reply, From, {ok, MQueue}}], Stream#{mqueue => []}};
 
 stream_handle({read, From, _StreamRef, _EndTs},
+    Stream = #{st := {_LS, closed}, mqueue := MQueue}) when MQueue /= [] ->
+    {shutdown, normal, [{reply, From, {ok, MQueue}}], Stream#{mqueue => []}};
+
+stream_handle({read, From, _StreamRef, _EndTs},
               Stream = #{st := {closed, closed}, mqueue := MQueue}) ->
     {shutdown, normal, [{reply, From, {ok, MQueue}}], Stream#{mqueue => []}};
 
@@ -552,6 +556,10 @@ stream_handle({gun_data, _GunPid, _StreamRef, fin, Data},
             handle_remote_closed([], Stream#{recvbuff => <<>>, mqueue => MQueue ++ Frames})
     end;
 
+
+stream_handle({gun_error, _GunPid, _StreamRef, {stream_error, no_error, 'Stream reset by server.'}},
+              Stream = #{st := {_LS, closed}, mqueue := MQueue}) when MQueue =/= [] ->
+    {ok, Stream};
 stream_handle({gun_error, _GunPid, _StreamRef, Reason}, Stream) ->
     {shutdown, Reason, Stream};
 
